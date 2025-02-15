@@ -22,6 +22,7 @@ Partial Class Form1
     'Do not modify it using the code editor.
     <System.Diagnostics.DebuggerStepThrough()>
     Private Sub InitializeComponent()
+        components = New ComponentModel.Container()
         Dim resources As System.ComponentModel.ComponentResourceManager = New System.ComponentModel.ComponentResourceManager(GetType(Form1))
         VideoGrid = New FlowLayoutPanel()
         WindowsIconThumbnail = New PictureBox()
@@ -40,13 +41,12 @@ Partial Class Form1
         PictureBox9 = New PictureBox()
         PictureBox10 = New PictureBox()
         ApplyToVidFile = New Button()
-        ApplyToNewFile = New Button()
         btnSelectFolder = New Button()
         FFmpegPath = New TextBox()
         BrowseFFmpeg = New Button()
         FolderPath = New TextBox()
         VideoFlowPanel = New Panel()
-        JPGOverlay = New CheckBox()
+        Label6 = New Label()
         IcarosPathTextbox = New TextBox()
         DLIcarosButton = New Button()
         BrowseIcarosButton = New Button()
@@ -58,6 +58,7 @@ Partial Class Form1
         DLFFmpegButton = New Button()
         ActualFileName = New TextBox()
         ThumbnailEdition = New GroupBox()
+        ResetOverlay = New Button()
         MarginBorder = New TextBox()
         Label5 = New Label()
         Label4 = New Label()
@@ -68,6 +69,16 @@ Partial Class Form1
         Label1 = New Label()
         GroupThumb = New GroupBox()
         VideoFileActionsGroup = New GroupBox()
+        ReencodeCheckbox = New CheckBox()
+        ProgressLabel = New TextBox()
+        ProgressBar2 = New ProgressBar()
+        MergeScreen = New Button()
+        MergeMethodCombobox = New ComboBox()
+        Label7 = New Label()
+        ImageList1 = New ImageList(components)
+        ThumbnailFlowPanel = New FlowLayoutPanel()
+        VideoFullTimeTextbox = New TextBox()
+        Label8 = New Label()
         CType(WindowsIconThumbnail, ComponentModel.ISupportInitialize).BeginInit()
         CType(FinalPictureBox, ComponentModel.ISupportInitialize).BeginInit()
         VideoPanel.SuspendLayout()
@@ -90,11 +101,15 @@ Partial Class Form1
         ' 
         ' VideoGrid
         ' 
-        VideoGrid.BackColor = SystemColors.ButtonHighlight
-        VideoGrid.Location = New Point(7, 5)
+        VideoGrid.AutoSizeMode = AutoSizeMode.GrowAndShrink
+        VideoGrid.BackColor = Color.Lavender
+        VideoGrid.Cursor = Cursors.Hand
+        VideoGrid.FlowDirection = FlowDirection.TopDown
+        VideoGrid.Location = New Point(3, 32)
         VideoGrid.Name = "VideoGrid"
-        VideoGrid.Size = New Size(272, 364)
+        VideoGrid.Size = New Size(305, 336)
         VideoGrid.TabIndex = 2
+        VideoGrid.WrapContents = False
         ' 
         ' WindowsIconThumbnail
         ' 
@@ -107,12 +122,13 @@ Partial Class Form1
         ' 
         ' TakeScreenShot
         ' 
-        TakeScreenShot.Location = New Point(223, 341)
+        TakeScreenShot.BackColor = Color.SkyBlue
+        TakeScreenShot.Location = New Point(280, 301)
         TakeScreenShot.Name = "TakeScreenShot"
-        TakeScreenShot.Size = New Size(206, 29)
+        TakeScreenShot.Size = New Size(152, 29)
         TakeScreenShot.TabIndex = 7
-        TakeScreenShot.Text = "TakeScreenShot"
-        TakeScreenShot.UseVisualStyleBackColor = True
+        TakeScreenShot.Text = "3) Take ScreenShot"
+        TakeScreenShot.UseVisualStyleBackColor = False
         ' 
         ' FinalPictureBox
         ' 
@@ -129,17 +145,17 @@ Partial Class Form1
         VideoPanel.Controls.Add(Video)
         VideoPanel.Location = New Point(9, 156)
         VideoPanel.Name = "VideoPanel"
-        VideoPanel.Size = New Size(461, 376)
+        VideoPanel.Size = New Size(432, 333)
         VideoPanel.TabIndex = 9
         ' 
         ' Video
         ' 
         Video.Enabled = True
-        Video.Location = New Point(3, 5)
+        Video.Location = New Point(6, 5)
         Video.Name = "Video"
         Video.OcxState = CType(resources.GetObject("Video.OcxState"), AxHost.State)
-        Video.Size = New Size(455, 368)
-        Video.TabIndex = 0
+        Video.Size = New Size(423, 323)
+        Video.TabIndex = 8
         ' 
         ' PictureBox1
         ' 
@@ -188,7 +204,7 @@ Partial Class Form1
         ' 
         ' PictureBox6
         ' 
-        PictureBox6.Location = New Point(6, 112)
+        PictureBox6.Location = New Point(5, 127)
         PictureBox6.Name = "PictureBox6"
         PictureBox6.Size = New Size(139, 75)
         PictureBox6.SizeMode = PictureBoxSizeMode.Zoom
@@ -197,7 +213,7 @@ Partial Class Form1
         ' 
         ' PictureBox7
         ' 
-        PictureBox7.Location = New Point(156, 112)
+        PictureBox7.Location = New Point(155, 127)
         PictureBox7.Name = "PictureBox7"
         PictureBox7.Size = New Size(139, 75)
         PictureBox7.SizeMode = PictureBoxSizeMode.Zoom
@@ -206,7 +222,7 @@ Partial Class Form1
         ' 
         ' PictureBox8
         ' 
-        PictureBox8.Location = New Point(306, 112)
+        PictureBox8.Location = New Point(305, 127)
         PictureBox8.Name = "PictureBox8"
         PictureBox8.Size = New Size(139, 75)
         PictureBox8.SizeMode = PictureBoxSizeMode.Zoom
@@ -215,7 +231,7 @@ Partial Class Form1
         ' 
         ' PictureBox9
         ' 
-        PictureBox9.Location = New Point(455, 112)
+        PictureBox9.Location = New Point(454, 127)
         PictureBox9.Name = "PictureBox9"
         PictureBox9.Size = New Size(139, 75)
         PictureBox9.SizeMode = PictureBoxSizeMode.Zoom
@@ -224,7 +240,7 @@ Partial Class Form1
         ' 
         ' PictureBox10
         ' 
-        PictureBox10.Location = New Point(607, 112)
+        PictureBox10.Location = New Point(606, 127)
         PictureBox10.Name = "PictureBox10"
         PictureBox10.Size = New Size(139, 75)
         PictureBox10.SizeMode = PictureBoxSizeMode.Zoom
@@ -233,36 +249,29 @@ Partial Class Form1
         ' 
         ' ApplyToVidFile
         ' 
-        ApplyToVidFile.Location = New Point(6, 26)
+        ApplyToVidFile.BackColor = Color.Salmon
+        ApplyToVidFile.Location = New Point(6, 25)
         ApplyToVidFile.Name = "ApplyToVidFile"
-        ApplyToVidFile.Size = New Size(217, 29)
+        ApplyToVidFile.Size = New Size(44, 29)
         ApplyToVidFile.TabIndex = 20
-        ApplyToVidFile.Text = "ApplyToVidFile"
-        ApplyToVidFile.UseVisualStyleBackColor = True
-        ' 
-        ' ApplyToNewFile
-        ' 
-        ApplyToNewFile.Location = New Point(6, 61)
-        ApplyToNewFile.Name = "ApplyToNewFile"
-        ApplyToNewFile.Size = New Size(217, 29)
-        ApplyToNewFile.TabIndex = 21
-        ApplyToNewFile.Text = "CopyToNewVid"
-        ApplyToNewFile.UseVisualStyleBackColor = True
+        ApplyToVidFile.Text = "GO!"
+        ApplyToVidFile.UseVisualStyleBackColor = False
         ' 
         ' btnSelectFolder
         ' 
+        btnSelectFolder.BackColor = Color.SkyBlue
         btnSelectFolder.Location = New Point(-1, 121)
         btnSelectFolder.Name = "btnSelectFolder"
-        btnSelectFolder.Size = New Size(227, 29)
+        btnSelectFolder.Size = New Size(245, 29)
         btnSelectFolder.TabIndex = 22
-        btnSelectFolder.Text = "Browse VideoPath"
-        btnSelectFolder.UseVisualStyleBackColor = True
+        btnSelectFolder.Text = "1) Browse VideoPath"
+        btnSelectFolder.UseVisualStyleBackColor = False
         ' 
         ' FFmpegPath
         ' 
-        FFmpegPath.Location = New Point(232, 59)
+        FFmpegPath.Location = New Point(250, 59)
         FFmpegPath.Name = "FFmpegPath"
-        FFmpegPath.Size = New Size(764, 27)
+        FFmpegPath.Size = New Size(746, 27)
         FFmpegPath.TabIndex = 1
         ' 
         ' BrowseFFmpeg
@@ -276,46 +285,48 @@ Partial Class Form1
         ' 
         ' FolderPath
         ' 
-        FolderPath.Location = New Point(232, 123)
+        FolderPath.Location = New Point(250, 123)
         FolderPath.Name = "FolderPath"
-        FolderPath.Size = New Size(764, 27)
+        FolderPath.Size = New Size(746, 27)
         FolderPath.TabIndex = 1
         ' 
         ' VideoFlowPanel
         ' 
+        VideoFlowPanel.BackColor = Color.Gainsboro
+        VideoFlowPanel.Controls.Add(Label6)
         VideoFlowPanel.Controls.Add(VideoGrid)
-        VideoFlowPanel.Location = New Point(476, 161)
+        VideoFlowPanel.Location = New Point(447, 161)
         VideoFlowPanel.Name = "VideoFlowPanel"
-        VideoFlowPanel.Size = New Size(285, 375)
+        VideoFlowPanel.Size = New Size(314, 375)
         VideoFlowPanel.TabIndex = 26
         ' 
-        ' JPGOverlay
+        ' Label6
         ' 
-        JPGOverlay.AutoSize = True
-        JPGOverlay.Checked = True
-        JPGOverlay.CheckState = CheckState.Checked
-        JPGOverlay.Location = New Point(817, 339)
-        JPGOverlay.Name = "JPGOverlay"
-        JPGOverlay.Size = New Size(160, 24)
-        JPGOverlay.TabIndex = 27
-        JPGOverlay.Text = "Icon in Thumbnail ?"
-        JPGOverlay.UseVisualStyleBackColor = True
+        Label6.AutoSize = True
+        Label6.BackColor = Color.SkyBlue
+        Label6.Location = New Point(7, 9)
+        Label6.Name = "Label6"
+        Label6.Size = New Size(228, 20)
+        Label6.TabIndex = 44
+        Label6.Text = "2) Clic the video you want to Edit"
         ' 
         ' IcarosPathTextbox
         ' 
-        IcarosPathTextbox.Location = New Point(232, 88)
+        IcarosPathTextbox.Location = New Point(250, 88)
         IcarosPathTextbox.Name = "IcarosPathTextbox"
-        IcarosPathTextbox.Size = New Size(764, 27)
+        IcarosPathTextbox.Size = New Size(746, 27)
         IcarosPathTextbox.TabIndex = 29
         ' 
         ' DLIcarosButton
         ' 
+        DLIcarosButton.BackColor = Color.DarkSeaGreen
         DLIcarosButton.Location = New Point(123, 88)
         DLIcarosButton.Name = "DLIcarosButton"
-        DLIcarosButton.Size = New Size(103, 29)
+        DLIcarosButton.Size = New Size(121, 29)
         DLIcarosButton.TabIndex = 28
-        DLIcarosButton.Text = "DL Icaros"
-        DLIcarosButton.UseVisualStyleBackColor = True
+        DLIcarosButton.Text = "b) DL Icaros"
+        DLIcarosButton.TextAlign = ContentAlignment.MiddleLeft
+        DLIcarosButton.UseVisualStyleBackColor = False
         ' 
         ' BrowseIcarosButton
         ' 
@@ -330,7 +341,7 @@ Partial Class Form1
         ' 
         CustomOverlay.Location = New Point(6, 127)
         CustomOverlay.Name = "CustomOverlay"
-        CustomOverlay.Size = New Size(217, 27)
+        CustomOverlay.Size = New Size(119, 27)
         CustomOverlay.TabIndex = 31
         CustomOverlay.Text = "JPG"
         CustomOverlay.TextAlign = HorizontalAlignment.Center
@@ -338,34 +349,38 @@ Partial Class Form1
         ' StatusBox
         ' 
         StatusBox.BackColor = SystemColors.Info
-        StatusBox.Location = New Point(3, 1)
+        StatusBox.Location = New Point(1017, 1)
         StatusBox.Multiline = True
         StatusBox.Name = "StatusBox"
-        StatusBox.Size = New Size(993, 52)
+        StatusBox.ReadOnly = True
+        StatusBox.ScrollBars = ScrollBars.Vertical
+        StatusBox.Size = New Size(438, 785)
         StatusBox.TabIndex = 1
         ' 
         ' BGTextOverlay
         ' 
-        BGTextOverlay.Location = New Point(73, 20)
+        BGTextOverlay.Location = New Point(80, 23)
         BGTextOverlay.Name = "BGTextOverlay"
         BGTextOverlay.Size = New Size(41, 27)
         BGTextOverlay.TabIndex = 32
         ' 
         ' FontTextOverlay
         ' 
-        FontTextOverlay.Location = New Point(73, 53)
+        FontTextOverlay.Location = New Point(80, 59)
         FontTextOverlay.Name = "FontTextOverlay"
         FontTextOverlay.Size = New Size(41, 27)
         FontTextOverlay.TabIndex = 33
         ' 
         ' DLFFmpegButton
         ' 
+        DLFFmpegButton.BackColor = Color.DarkSeaGreen
         DLFFmpegButton.Location = New Point(123, 59)
         DLFFmpegButton.Name = "DLFFmpegButton"
-        DLFFmpegButton.Size = New Size(103, 29)
+        DLFFmpegButton.Size = New Size(121, 29)
         DLFFmpegButton.TabIndex = 34
-        DLFFmpegButton.Text = "DL FFmpeg"
-        DLFFmpegButton.UseVisualStyleBackColor = True
+        DLFFmpegButton.Text = "a) DL FFmpeg"
+        DLFFmpegButton.TextAlign = ContentAlignment.MiddleLeft
+        DLFFmpegButton.UseVisualStyleBackColor = False
         ' 
         ' ActualFileName
         ' 
@@ -380,6 +395,7 @@ Partial Class Form1
         ' 
         ' ThumbnailEdition
         ' 
+        ThumbnailEdition.Controls.Add(ResetOverlay)
         ThumbnailEdition.Controls.Add(MarginBorder)
         ThumbnailEdition.Controls.Add(Label5)
         ThumbnailEdition.Controls.Add(Label4)
@@ -398,6 +414,16 @@ Partial Class Form1
         ThumbnailEdition.TabStop = False
         ThumbnailEdition.Text = "Overlay Edition"
         ' 
+        ' ResetOverlay
+        ' 
+        ResetOverlay.BackColor = Color.Yellow
+        ResetOverlay.Location = New Point(131, 125)
+        ResetOverlay.Name = "ResetOverlay"
+        ResetOverlay.Size = New Size(98, 29)
+        ResetOverlay.TabIndex = 47
+        ResetOverlay.Text = "Reset"
+        ResetOverlay.UseVisualStyleBackColor = False
+        ' 
         ' MarginBorder
         ' 
         MarginBorder.Location = New Point(182, 56)
@@ -410,7 +436,7 @@ Partial Class Form1
         ' Label5
         ' 
         Label5.AutoSize = True
-        Label5.Location = New Point(120, 56)
+        Label5.Location = New Point(120, 63)
         Label5.Name = "Label5"
         Label5.Size = New Size(56, 20)
         Label5.TabIndex = 42
@@ -454,7 +480,7 @@ Partial Class Form1
         ' Label2
         ' 
         Label2.AutoSize = True
-        Label2.Location = New Point(6, 53)
+        Label2.Location = New Point(6, 63)
         Label2.Name = "Label2"
         Label2.Size = New Size(68, 20)
         Label2.TabIndex = 35
@@ -482,29 +508,136 @@ Partial Class Form1
         GroupThumb.Controls.Add(PictureBox10)
         GroupThumb.Controls.Add(PictureBox5)
         GroupThumb.Controls.Add(PictureBox7)
-        GroupThumb.Location = New Point(9, 535)
+        GroupThumb.Location = New Point(9, 584)
         GroupThumb.Name = "GroupThumb"
-        GroupThumb.Size = New Size(752, 202)
+        GroupThumb.Size = New Size(752, 214)
         GroupThumb.TabIndex = 37
         GroupThumb.TabStop = False
         GroupThumb.Text = "Thumbnails from"
         ' 
         ' VideoFileActionsGroup
         ' 
+        VideoFileActionsGroup.BackColor = Color.LightSkyBlue
+        VideoFileActionsGroup.Controls.Add(ReencodeCheckbox)
+        VideoFileActionsGroup.Controls.Add(ProgressLabel)
+        VideoFileActionsGroup.Controls.Add(ProgressBar2)
         VideoFileActionsGroup.Controls.Add(ApplyToVidFile)
-        VideoFileActionsGroup.Controls.Add(ApplyToNewFile)
         VideoFileActionsGroup.Location = New Point(767, 665)
         VideoFileActionsGroup.Name = "VideoFileActionsGroup"
-        VideoFileActionsGroup.Size = New Size(229, 100)
+        VideoFileActionsGroup.Size = New Size(229, 133)
         VideoFileActionsGroup.TabIndex = 38
         VideoFileActionsGroup.TabStop = False
-        VideoFileActionsGroup.Text = "VideoFile Actions"
+        VideoFileActionsGroup.Text = "6) VideoFile Actions"
+        ' 
+        ' ReencodeCheckbox
+        ' 
+        ReencodeCheckbox.AutoSize = True
+        ReencodeCheckbox.Checked = True
+        ReencodeCheckbox.CheckState = CheckState.Checked
+        ReencodeCheckbox.Font = New Font("Segoe UI", 7.6F)
+        ReencodeCheckbox.Location = New Point(50, 31)
+        ReencodeCheckbox.Name = "ReencodeCheckbox"
+        ReencodeCheckbox.Size = New Size(173, 21)
+        ReencodeCheckbox.TabIndex = 48
+        ReencodeCheckbox.Text = "FFMPEG Reencode if Fail"
+        ReencodeCheckbox.UseVisualStyleBackColor = True
+        ' 
+        ' ProgressLabel
+        ' 
+        ProgressLabel.BackColor = Color.LightSkyBlue
+        ProgressLabel.Location = New Point(6, 63)
+        ProgressLabel.Name = "ProgressLabel"
+        ProgressLabel.Size = New Size(222, 27)
+        ProgressLabel.TabIndex = 44
+        ' 
+        ' ProgressBar2
+        ' 
+        ProgressBar2.Location = New Point(5, 96)
+        ProgressBar2.Name = "ProgressBar2"
+        ProgressBar2.Size = New Size(223, 29)
+        ProgressBar2.TabIndex = 43
+        ' 
+        ' MergeScreen
+        ' 
+        MergeScreen.BackColor = Color.BurlyWood
+        MergeScreen.Location = New Point(616, 548)
+        MergeScreen.Name = "MergeScreen"
+        MergeScreen.Size = New Size(138, 29)
+        MergeScreen.TabIndex = 41
+        MergeScreen.Text = "Merge Screens"
+        MergeScreen.UseVisualStyleBackColor = False
+        MergeScreen.Visible = False
+        ' 
+        ' MergeMethodCombobox
+        ' 
+        MergeMethodCombobox.FormattingEnabled = True
+        MergeMethodCombobox.Location = New Point(450, 549)
+        MergeMethodCombobox.Name = "MergeMethodCombobox"
+        MergeMethodCombobox.Size = New Size(151, 28)
+        MergeMethodCombobox.TabIndex = 42
+        MergeMethodCombobox.Visible = False
+        ' 
+        ' Label7
+        ' 
+        Label7.AutoSize = True
+        Label7.BackColor = Color.SkyBlue
+        Label7.Location = New Point(785, 346)
+        Label7.Name = "Label7"
+        Label7.Size = New Size(194, 20)
+        Label7.TabIndex = 45
+        Label7.Text = "5) Add an Overlay if wanted"
+        ' 
+        ' ImageList1
+        ' 
+        ImageList1.ColorDepth = ColorDepth.Depth32Bit
+        ImageList1.ImageSize = New Size(16, 16)
+        ImageList1.TransparentColor = Color.Transparent
+        ' 
+        ' ThumbnailFlowPanel
+        ' 
+        ThumbnailFlowPanel.AutoScroll = True
+        ThumbnailFlowPanel.AutoSizeMode = AutoSizeMode.GrowAndShrink
+        ThumbnailFlowPanel.BackColor = Color.AntiqueWhite
+        ThumbnailFlowPanel.Location = New Point(9, 496)
+        ThumbnailFlowPanel.Name = "ThumbnailFlowPanel"
+        ThumbnailFlowPanel.Size = New Size(432, 82)
+        ThumbnailFlowPanel.TabIndex = 46
+        ThumbnailFlowPanel.WrapContents = False
+        ' 
+        ' VideoFullTimeTextbox
+        ' 
+        VideoFullTimeTextbox.BackColor = SystemColors.Highlight
+        VideoFullTimeTextbox.ForeColor = SystemColors.Window
+        VideoFullTimeTextbox.Location = New Point(923, 209)
+        VideoFullTimeTextbox.Multiline = True
+        VideoFullTimeTextbox.Name = "VideoFullTimeTextbox"
+        VideoFullTimeTextbox.ReadOnly = True
+        VideoFullTimeTextbox.Size = New Size(73, 21)
+        VideoFullTimeTextbox.TabIndex = 47
+        VideoFullTimeTextbox.TextAlign = HorizontalAlignment.Center
+        ' 
+        ' Label8
+        ' 
+        Label8.AutoSize = True
+        Label8.Font = New Font("Segoe UI", 25.8000011F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
+        Label8.Location = New Point(117, -4)
+        Label8.Name = "Label8"
+        Label8.Size = New Size(700, 60)
+        Label8.TabIndex = 48
+        Label8.Text = "VIDEO THUMBNAIL GENERATOR"
         ' 
         ' Form1
         ' 
-        AutoScaleDimensions = New SizeF(8F, 20F)
+        AutoScaleDimensions = New SizeF(8.0F, 20.0F)
         AutoScaleMode = AutoScaleMode.Font
-        ClientSize = New Size(1008, 798)
+        BackColor = Color.AliceBlue
+        ClientSize = New Size(1447, 806)
+        Controls.Add(Label8)
+        Controls.Add(VideoFullTimeTextbox)
+        Controls.Add(ThumbnailFlowPanel)
+        Controls.Add(Label7)
+        Controls.Add(MergeMethodCombobox)
+        Controls.Add(MergeScreen)
         Controls.Add(VideoFileActionsGroup)
         Controls.Add(GroupThumb)
         Controls.Add(ThumbnailEdition)
@@ -514,7 +647,6 @@ Partial Class Form1
         Controls.Add(BrowseIcarosButton)
         Controls.Add(IcarosPathTextbox)
         Controls.Add(DLIcarosButton)
-        Controls.Add(JPGOverlay)
         Controls.Add(VideoFlowPanel)
         Controls.Add(FolderPath)
         Controls.Add(BrowseFFmpeg)
@@ -524,7 +656,7 @@ Partial Class Form1
         Controls.Add(FinalPictureBox)
         Controls.Add(WindowsIconThumbnail)
         Name = "Form1"
-        Text = "Form1"
+        Text = "Video Thumbnail Changer v1.2 - by soaresden"
         CType(WindowsIconThumbnail, ComponentModel.ISupportInitialize).EndInit()
         CType(FinalPictureBox, ComponentModel.ISupportInitialize).EndInit()
         VideoPanel.ResumeLayout(False)
@@ -540,10 +672,12 @@ Partial Class Form1
         CType(PictureBox9, ComponentModel.ISupportInitialize).EndInit()
         CType(PictureBox10, ComponentModel.ISupportInitialize).EndInit()
         VideoFlowPanel.ResumeLayout(False)
+        VideoFlowPanel.PerformLayout()
         ThumbnailEdition.ResumeLayout(False)
         ThumbnailEdition.PerformLayout()
         GroupThumb.ResumeLayout(False)
         VideoFileActionsGroup.ResumeLayout(False)
+        VideoFileActionsGroup.PerformLayout()
         ResumeLayout(False)
         PerformLayout()
     End Sub
@@ -552,7 +686,6 @@ Partial Class Form1
     Friend WithEvents TakeScreenShot As Button
     Friend WithEvents FinalPictureBox As PictureBox
     Friend WithEvents VideoPanel As Panel
-    Friend WithEvents VideoPlayer As AxWMPLib.AxWindowsMediaPlayer
     Friend WithEvents PictureBox1 As PictureBox
     Friend WithEvents PictureBox2 As PictureBox
     Friend WithEvents PictureBox3 As PictureBox
@@ -564,17 +697,14 @@ Partial Class Form1
     Friend WithEvents PictureBox9 As PictureBox
     Friend WithEvents PictureBox10 As PictureBox
     Friend WithEvents ApplyToVidFile As Button
-    Friend WithEvents ApplyToNewFile As Button
     Friend WithEvents btnSelectFolder As Button
     Friend WithEvents FFmpegPath As TextBox
     Friend WithEvents BrowseFFmpeg As Button
     Friend WithEvents FolderPath As TextBox
     Friend WithEvents VideoFlowPanel As Panel
-    Friend WithEvents JPGOverlay As CheckBox
     Friend WithEvents IcarosPathTextbox As TextBox
     Friend WithEvents DLIcarosButton As Button
     Friend WithEvents BrowseIcarosButton As Button
-    Friend WithEvents Video As AxWMPLib.AxWindowsMediaPlayer
     Friend WithEvents CustomOverlay As TextBox
     Friend WithEvents ColorDialog1 As ColorDialog
     Friend WithEvents StatusBox As TextBox
@@ -593,5 +723,18 @@ Partial Class Form1
     Friend WithEvents Label5 As Label
     Friend WithEvents Label4 As Label
     Friend WithEvents VideoFileActionsGroup As GroupBox
+    Friend WithEvents MergeScreen As Button
+    Friend WithEvents MergeMethodCombobox As ComboBox
+    Friend WithEvents ProgressBar2 As ProgressBar
+    Friend WithEvents ProgressLabel As TextBox
+    Friend WithEvents Label6 As Label
+    Friend WithEvents Label7 As Label
+    Friend WithEvents ImageList1 As ImageList
+    Friend WithEvents ThumbnailFlowPanel As FlowLayoutPanel
+    Friend WithEvents ResetOverlay As Button
+    Friend WithEvents ReencodeCheckbox As CheckBox
+    Friend WithEvents VideoFullTimeTextbox As TextBox
+    Friend WithEvents Label8 As Label
+    Friend WithEvents Video As AxWMPLib.AxWindowsMediaPlayer
 
 End Class

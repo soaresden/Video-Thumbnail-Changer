@@ -26,6 +26,11 @@ Public Class Form1
     Private isSelecting As Boolean = False
     Private selectionStartPoint As Point
     Private IconInThumbnail As Boolean = False ' Default value
+    Private isCapturing As Boolean = False
+    ' Dictionary to store backups of images
+    Private BackupDict As New Dictionary(Of String, Image)
+    ' Variable to store the path of the currently displayed image
+    Private CurrentImageFilePath As String = ""
 
     Public Enum TextPosition
         UL ' Top left
@@ -88,13 +93,10 @@ Public Class Form1
             File.Delete(backupPath) ' Delete the old image on startup
         End If
 
-        FinalPictureBox.Image = Nothing
-
         If My.Settings.ffmpegpath IsNot Nothing Then
             FFmpegPath.Text = My.Settings.ffmpegpath
         End If
 
-        UpdateCustomOverlay()
         BGTextOverlay.BackColor = Color.Black
         FontTextOverlay.BackColor = Color.Yellow
 
@@ -118,56 +120,50 @@ Public Class Form1
             DLIcarosButton.Enabled = True
         End If
 
+        ' Configure the ImageList for larger thumbnails
+        ImageList1.ImageSize = New Size(120, 90) ' Increase thumbnail size
+        ImageList1.ColorDepth = ColorDepth.Depth32Bit
+
         ' Add text position options
         TextPositionCombobox.Items.AddRange({"Up Left", "Up Middle", "Up Right", "Bottom Left", "Bottom Middle", "Bottom Right", "Screen Center"})
         TextPositionCombobox.SelectedIndex = 4 ' Default selection Bottom Middle
 
-        Dim CheckBoxIconInThumbnail As New CheckBox With {
-            .Text = "Icon in Thumbnail",
-            .Name = "IconInThumbnail",
-            .Checked = False,
-            .AutoSize = True,
-            .Location = New Point(10, 10)
-        }
-        AddHandler CheckBoxIconInThumbnail.CheckedChanged, AddressOf IconInThumbnail_CheckedChanged
-        Me.Controls.Add(CheckBoxIconInThumbnail)
+        ' Initialize the list and controls for multi-screen
+        MergeMethodCombobox.Items.AddRange({"Alpha Blend", "Split Merge", "Mean Blend", "Grid Layout", "Layered Overlay"})
+        MergeMethodCombobox.SelectedIndex = 3 ' Grid Layout
 
-        UpdateStatusBox("Welcome to Video Thumbnail Changer ! ")
+        UpdateStatusBox("Welcome to Video Thumbnail Changer!")
+        FinalPictureBox.Image = Nothing
     End Sub
 
     Private Sub Form1_Shown(sender As Object, e As EventArgs) Handles MyBase.Shown
         FolderPath.Focus()
     End Sub
 
-    ' Update StatusBox with messages
-    Private Sub UpdateStatusBox(message As String)
-        StatusBox.Text = message
-    End Sub
-
     ' Get FFmpeg Path
     Private Function GetFFMPEGPath() As String
-        ' Check if a path is already set in the interface and if it exists
         If Not String.IsNullOrEmpty(FFmpegPath.Text) AndAlso File.Exists(FFmpegPath.Text) Then
+            DLFFmpegButton.Enabled = False
             Return FFmpegPath.Text
         End If
 
-        ' Directory where FFmpeg is supposed to be installed
         Dim ffmpegDirectory As String = Path.Combine(Application.StartupPath, "FFmpeg")
-
-        ' Check if the FFmpeg directory exists
         If Directory.Exists(ffmpegDirectory) Then
-            ' Recursively search for the ffmpeg.exe file in all subdirectories
             Dim ffmpegFiles As String() = Directory.GetFiles(ffmpegDirectory, "ffmpeg.exe", SearchOption.AllDirectories)
-
-            ' If a file is found, return its full path
             If ffmpegFiles.Length > 0 Then
+                FFmpegPath.Text = ffmpegFiles(0)
+                DLFFmpegButton.Enabled = False
                 Return ffmpegFiles(0)
             End If
         End If
 
-        ' Return an empty string if FFmpeg is not found
+        DLFFmpegButton.Enabled = True
         Return ""
     End Function
+
+    Private Sub FFmpegPath_TextChanged(sender As Object, e As EventArgs) Handles FFmpegPath.TextChanged
+        DLFFmpegButton.Enabled = Not File.Exists(FFmpegPath.Text)
+    End Sub
 
     ' Get Icaros Path
     Private Function GetIcarosPath() As String
@@ -407,6 +403,52 @@ Public Class Form1
         GC.WaitForPendingFinalizers()
     End Sub
 
+    Private Sub EmptyMultiScreenStuff()
+        ' Remove all images in ThumbnailFlowPanel
+        Dim pictureBoxesToRemove As New List(Of PictureBox)()
+
+        For Each control As Control In ThumbnailFlowPanel.Controls
+            If TypeOf control Is PictureBox Then
+                Dim pb As PictureBox = CType(control, PictureBox)
+                If pb IsNot Nothing AndAlso pb.Tag IsNot Nothing Then
+                    Dim filePath As String = pb.Tag.ToString()
+                    If File.Exists(filePath) Then
+                        Try
+                            File.Delete(filePath)
+                            UpdateStatusBox("✅ Deleted: " & filePath)
+                        Catch ex As Exception
+                            UpdateStatusBox("❌ Error deleting: " & ex.Message)
+                        End Try
+                    End If
+                End If
+                pictureBoxesToRemove.Add(pb)
+            End If
+        Next
+
+        ' Remove PictureBoxes from FlowLayoutPanel
+        For Each pb In pictureBoxesToRemove
+            ThumbnailFlowPanel.Controls.Remove(pb)
+            pb.Dispose()
+        Next
+
+        ' Clear the FlowLayoutPanel completely
+        ThumbnailFlowPanel.Controls.Clear()
+
+        ' Remove the merged image
+        FinalPictureBox.Image = Nothing
+
+        ' Also remove the merged backup if it exists
+        Dim backupPath As String = Path.Combine(Path.GetTempPath(), "screenshot_backup.jpg")
+        If File.Exists(backupPath) Then
+            Try
+                File.Delete(backupPath)
+                UpdateStatusBox("✅ Backup deleted")
+            Catch ex As Exception
+                UpdateStatusBox("❌ Error deleting backup: " & ex.Message)
+            End Try
+        End If
+    End Sub
+
     Private Sub DeleteTemporaryScreenshots()
         Try
             Dim tempPath As String = Path.GetTempPath()
@@ -470,35 +512,50 @@ Public Class Form1
 
         Dim index As Integer = 0
         For Each file As String In files
+            ' Create the panel containing the video
             Dim videoPanel As New Panel With {
-                .Size = New Size(130, 140),
-                .Padding = New Padding(5)
-            }
+            .Size = New Size(130, 140),
+            .Padding = New Padding(5),
+            .BorderStyle = BorderStyle.FixedSingle ' Add black border around the panel
+        }
 
+            ' Create the video thumbnail
             Dim pb As New PictureBox With {
-                .Width = 120,
-                .Height = 80,
-                .SizeMode = PictureBoxSizeMode.StretchImage,
-                .Tag = file
-            }
+            .Width = 120,
+            .Height = 80,
+            .SizeMode = PictureBoxSizeMode.StretchImage,
+            .Tag = file,
+            .BorderStyle = BorderStyle.FixedSingle ' Add black border around the image
+        }
 
+            ' Load the Windows or FFmpeg thumbnail
+            Dim thumbnail As Image = GetWindowsVideoThumbnail(file)
+            If thumbnail IsNot Nothing Then
+                pb.Image = AddBorderToImage(thumbnail, 5) ' Add a larger 5px black border
+            End If
+
+            ' Create the text below the thumbnail
             Dim lbl As New Label With {
-                .Text = Path.GetFileNameWithoutExtension(file),
-                .AutoSize = False,
-                .Width = 120,
-                .Height = 40,
-                .TextAlign = ContentAlignment.MiddleCenter
-            }
+            .Text = Path.GetFileNameWithoutExtension(file),
+            .AutoSize = False,
+            .Width = 120,
+            .Height = 40,
+            .TextAlign = ContentAlignment.MiddleCenter
+        }
 
-            pb.Image = GetWindowsVideoThumbnail(file)
-
+            ' Add a tooltip (info-bubble)
             Dim tooltip As New ToolTip()
             Dim fileInfo As New FileInfo(file)
             tooltip.SetToolTip(pb, $"Name: {fileInfo.Name}{vbCrLf}Size: {fileInfo.Length \ 1024} KB{vbCrLf}Date: {fileInfo.CreationTime}")
 
+            ' Associate the click event
             AddHandler pb.Click, AddressOf VideoClicked
+
+            ' Add elements to the video panel
             videoPanel.Controls.Add(pb)
             videoPanel.Controls.Add(lbl)
+
+            ' Add the video panel to the video grid
             VideoGrid.Controls.Add(videoPanel)
 
             index += 1
@@ -574,64 +631,6 @@ Public Class Form1
         End If
     End Function
 
-    ' Video Clicked Event
-    Private Sub VideoClicked(sender As Object, e As EventArgs)
-        Dim pb As PictureBox = TryCast(sender, PictureBox)
-        If pb Is Nothing OrElse pb.Tag Is Nothing OrElse String.IsNullOrEmpty(pb.Tag.ToString()) Then
-            UpdateStatusBox("Error: No video associated with this thumbnail.")
-            Return
-        End If
-
-        selectedVideo = pb.Tag.ToString()
-
-        ' Check if the video file exists
-        If Not File.Exists(selectedVideo) Then
-            UpdateStatusBox("The selected video does not exist.")
-            Return
-        End If
-
-        ' Load video details
-        ActualFileName.Text = Path.GetFileName(selectedVideo)
-        GroupThumb.Text = "Thumbnails from " & ActualFileName.Text
-
-        ' Check format compatibility for thumbnails
-        Dim supportsThumbnails As Boolean = CheckThumbnailSupport(selectedVideo)
-
-        ' Load the Windows-generated thumbnail (this always works)
-        Dim windowsThumbnail As Image = GetWindowsVideoThumbnail(selectedVideo)
-        If windowsThumbnail IsNot Nothing Then
-            WindowsIconThumbnail.Image = windowsThumbnail
-        End If
-
-        ' If the format supports thumbnails, load them; otherwise, hide the UI elements
-        If supportsThumbnails Then
-            LoadThumbnails(selectedVideo)
-            ThumbnailEdition.Visible = True
-            JPGOverlay.Visible = True
-            VideoFileActionsGroup.Visible = True
-        Else
-            ' Hide the thumbnail editing UI if not supported
-            ThumbnailEdition.Visible = False
-            JPGOverlay.Visible = False
-            VideoFileActionsGroup.Visible = False
-        End If
-
-        ' Load the video into the player
-        Try
-            Video.URL = selectedVideo
-            Video.Ctlcontrols.stop()
-            Video.uiMode = "full"
-            Video.settings.volume = 50
-            Video.fullScreen = False
-            AddHandler Video.PlayStateChange, AddressOf Video_PlayStateChanged
-
-            Video.Ctlcontrols.play()
-        Catch ex As Exception
-            UpdateStatusBox("Error loading video: " & ex.Message)
-        End Try
-    End Sub
-
-
     Private Function CheckThumbnailSupport(filePath As String) As Boolean
         Dim supportedFormats As String() = {".mp4", ".mkv", ".avi"}
         Return supportedFormats.Contains(Path.GetExtension(filePath).ToLower())
@@ -639,9 +638,7 @@ Public Class Form1
 
     ' Load Thumbnails for Video
     Private Sub LoadThumbnails(videoPath As String)
-        ' Delete only the thumbnails that need to be replaced
         DeleteTemporaryScreenshots()
-
         Dim totalThumbnails As Integer = 10
         Dim videoDuration As Integer = GetVideoDuration(videoPath)
         If videoDuration = 0 Then Exit Sub
@@ -652,34 +649,16 @@ Public Class Form1
 
         Dim tooltip As New ToolTip()
 
-        ' Generate the main image
-        Dim actualThumbPath As String = Path.Combine(Path.GetTempPath(), "actualthumb.jpg")
-        If Not File.Exists(actualThumbPath) Then
-            Dim mainThumb As Image = GetWindowsVideoThumbnail(videoPath)
-            If mainThumb IsNot Nothing Then
-                WindowsIconThumbnail.Image = New Bitmap(mainThumb) ' Copy to avoid locking
-
-                ' 🟢 Add the Tag with an estimated timecode
-                Dim estimatedTime As Integer = GetEstimatedWindowsThumbnailTimeCode(videoDuration)
-                WindowsIconThumbnail.Tag = estimatedTime
-
-                mainThumb.Dispose()
-            End If
-        End If
-
-        ' Generate thumbnails for each PictureBox
         For i As Integer = 0 To totalThumbnails - 1
             Dim timestamp As Integer = i * interval
-            pictureBoxes(i).Tag = timestamp  ' Store the timecode in the PictureBox
-            AddHandler pictureBoxes(i).Click, AddressOf ThumbnailClicked ' Add click event handler
+            pictureBoxes(i).Tag = timestamp
+            AddHandler pictureBoxes(i).Click, AddressOf Thumbnail_Clicked
 
-            Dim thumbnailPath As String = Path.Combine(Path.GetTempPath(), $"thumb{i + 1}.jpg")
             Dim thumbnail As Image = GetFFmpegVideoThumbnail(videoPath, timestamp, i + 1)
             If thumbnail IsNot Nothing Then
-                Using tempImg As Bitmap = New Bitmap(thumbnail)
-                    pictureBoxes(i).Image = New Bitmap(tempImg) ' Assign memory to avoid locking
-                End Using
-                tooltip.SetToolTip(pictureBoxes(i), $"Capture at {(timestamp / videoDuration) * 100}%")
+                Dim imageWithBorder As Image = AddBorderToImage(thumbnail, 5) ' Add a black border
+                pictureBoxes(i).Image = imageWithBorder
+                tooltip.SetToolTip(pictureBoxes(i), $"Capture at {Math.Round((timestamp / videoDuration) * 100)}%")
             End If
         Next
     End Sub
@@ -691,7 +670,7 @@ Public Class Form1
         ' Calculate the timecode
         Dim estimatedTime As Integer = Math.Max(0, Math.Min(CInt(videoDuration * factor), videoDuration - 1))
 
-        ' 🟢 Debug: Display in the StatusBox
+        ' Debug: Display in the StatusBox
         UpdateStatusBox($"Video duration: {videoDuration} sec | Estimated Windows thumbnail timecode: {estimatedTime} sec")
 
         Return estimatedTime
@@ -763,76 +742,169 @@ Public Class Form1
         End If
     End Sub
 
-    Private Sub ThumbnailClicked(sender As Object, e As EventArgs)
-        Dim pb As PictureBox = TryCast(sender, PictureBox)
-        If pb IsNot Nothing AndAlso pb.Tag IsNot Nothing AndAlso IsNumeric(pb.Tag) Then
-            Dim position As Integer = CInt(pb.Tag)
+    ' MERGE FUNCTIONS
+    Private Function MergeImages() As Image
+        Dim images As New List(Of Bitmap)
+        Try
+            ' Retrieve the size of the first screenshot to standardize the merge
+            Dim baseSize As Size = Image.FromFile(CType(ThumbnailFlowPanel.Controls(0), PictureBox).Tag.ToString()).Size
 
-            If Video.currentMedia IsNot Nothing Then
-                Video.Ctlcontrols.currentPosition = position
-                Video.Ctlcontrols.play()
-            Else
-                UpdateStatusBox("Error: Unable to play the video.")
-            End If
-        End If
-    End Sub
+            ' Load images into memory, resizing them to the correct size
+            For Each control As Control In ThumbnailFlowPanel.Controls
+                Dim pb As PictureBox = TryCast(control, PictureBox)
+                If pb IsNot Nothing AndAlso File.Exists(pb.Tag.ToString()) Then
+                    Dim img As New Bitmap(pb.Tag.ToString())
+                    images.Add(ResizeImageToSize(img, baseSize))
+                    img.Dispose()
+                End If
+            Next
 
-    Private Sub ScreenshotButton_Click(sender As Object, e As EventArgs) Handles TakeScreenShot.Click
-        If String.IsNullOrEmpty(selectedVideo) Then
-            UpdateStatusBox("No video is currently playing.")
-            Return
-        End If
-
-        ' Capture the current screenshot from the video
-        Dim timestamp As Integer = CInt(Video.Ctlcontrols.currentPosition)
-        Dim screenshot As Image = GetFFmpegVideoThumbnail(selectedVideo, timestamp, 99)
-
-        If screenshot IsNot Nothing Then
-            ' Save a backup to restore later
-            Dim backupPath As String = Path.Combine(Path.GetTempPath(), "screenshot_backup.jpg")
-            screenshot.Save(backupPath, Imaging.ImageFormat.Jpeg)
-
-            ' Assign the image to FinalPictureBox
-            FinalPictureBox.Image = New Bitmap(screenshot)
-
-            ' If JPGOverlay is checked, apply the overlay immediately
-            If JPGOverlay.Checked Then
-                UpdateOverlay()
+            If images.Count < 2 Then
+                UpdateStatusBox("Error loading images.")
+                Return Nothing
             End If
 
-            UpdateStatusBox("Screenshot taken and displayed.")
-        Else
-            UpdateStatusBox("Error capturing image.")
-        End If
-    End Sub
+            ' Retrieve the selected method
+            Dim method As String = MergeMethodCombobox.SelectedItem.ToString()
+            Dim resultImage As Bitmap = Nothing
 
-    ' OVERLAY OPERATION
-    ' Thumbnail Operation
-    Private Sub JPGOverlay_CheckedChanged(sender As Object, e As EventArgs) Handles JPGOverlay.CheckedChanged
-        If JPGOverlay.Checked Then
-            ' Appliquer l'overlay sur l'image actuelle
-            UpdateOverlay()
-        Else
-            ' Charger immédiatement le backup sans overlay
-            Dim backupPath As String = Path.Combine(Path.GetTempPath(), "screenshot_backup.jpg")
+            Select Case method
+                Case "Alpha Blend"
+                    resultImage = AlphaBlendMerge(images)
+                Case "Split Merge"
+                    resultImage = SplitMerge(images)
+                Case "Mean Blend"
+                    resultImage = MeanBlendMerge(images)
+                Case "Grid Layout"
+                    resultImage = GridMerge(images)
+                Case "Layered Overlay"
+                    resultImage = LayeredOverlayMerge(images)
+            End Select
 
-            If File.Exists(backupPath) Then
-                Try
-                    Using tempStream As New FileStream(backupPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)
-                        Dim originalImage As New Bitmap(tempStream)
-                        FinalPictureBox.Image = ResizeImageToMaxSize(originalImage, 800) ' Limite à 800 px max
-                    End Using
-                    UpdateStatusBox("Backup restauré après désactivation de l'overlay.")
-                Catch ex As Exception
-                    UpdateStatusBox("Erreur lors du chargement du backup: " & ex.Message)
-                End Try
-            Else
-                UpdateStatusBox("Aucun backup trouvé, impossible de restaurer.")
-            End If
-        End If
-    End Sub
+            ' Clean up memory
+            For Each img In images
+                img.Dispose()
+            Next
 
+            Return resultImage
+        Catch ex As Exception
+            UpdateStatusBox("Error merging: " & ex.Message)
+            Return Nothing
+        End Try
+    End Function
 
+    Private Function AlphaBlendMerge(images As List(Of Bitmap)) As Bitmap
+        Dim width As Integer = images(0).Width
+        Dim height As Integer = images(0).Height
+        Dim result As New Bitmap(width, height)
+
+        Using g As Graphics = Graphics.FromImage(result)
+            Dim alphaStep As Single = 1.0F / images.Count
+            Dim currentAlpha As Single = 1.0F
+
+            For Each img In images
+                Dim cm As New Imaging.ColorMatrix With {
+                .Matrix33 = currentAlpha ' Alpha of the image
+            }
+                Dim ia As New Imaging.ImageAttributes()
+                ia.SetColorMatrix(cm, Imaging.ColorMatrixFlag.Default, Imaging.ColorAdjustType.Bitmap)
+
+                g.DrawImage(img, New Rectangle(0, 0, width, height), 0, 0, width, height, GraphicsUnit.Pixel, ia)
+                currentAlpha -= alphaStep
+            Next
+        End Using
+
+        Return result
+    End Function
+
+    Private Function SplitMerge(images As List(Of Bitmap)) As Bitmap
+        Dim width As Integer = images(0).Width
+        Dim height As Integer = images(0).Height
+        Dim result As New Bitmap(width, height)
+
+        Using g As Graphics = Graphics.FromImage(result)
+            Dim sliceHeight As Integer = height \ images.Count
+            Dim yOffset As Integer = 0
+
+            For Each img In images
+                g.DrawImage(img, New Rectangle(0, yOffset, width, sliceHeight), New Rectangle(0, yOffset, width, sliceHeight), GraphicsUnit.Pixel)
+                yOffset += sliceHeight
+            Next
+        End Using
+
+        Return result
+    End Function
+
+    Private Function MeanBlendMerge(images As List(Of Bitmap)) As Bitmap
+        Dim width As Integer = images(0).Width
+        Dim height As Integer = images(0).Height
+        Dim result As New Bitmap(width, height)
+
+        Using g As Graphics = Graphics.FromImage(result)
+            For Each img In images
+                g.DrawImage(img, New Rectangle(0, 0, width, height), 0, 0, width, height, GraphicsUnit.Pixel)
+            Next
+        End Using
+
+        Return result
+    End Function
+
+    Private Function GridMerge(images As List(Of Bitmap)) As Bitmap
+        Dim gridSize As Integer = Math.Ceiling(Math.Sqrt(images.Count))
+        Dim imgWidth As Integer = images(0).Width
+        Dim imgHeight As Integer = images(0).Height
+        Dim result As New Bitmap(gridSize * imgWidth, gridSize * imgHeight)
+
+        Using g As Graphics = Graphics.FromImage(result)
+            Dim x As Integer = 0, y As Integer = 0
+            For Each img In images
+                g.DrawImage(img, New Rectangle(x * imgWidth, y * imgHeight, imgWidth, imgHeight), 0, 0, imgWidth, imgHeight, GraphicsUnit.Pixel)
+                x += 1
+                If x >= gridSize Then
+                    x = 0
+                    y += 1
+                End If
+            Next
+        End Using
+
+        Return result
+    End Function
+
+    Private Function LayeredOverlayMerge(images As List(Of Bitmap)) As Bitmap
+        Dim width As Integer = images(0).Width
+        Dim height As Integer = images(0).Height
+        Dim result As New Bitmap(width, height)
+
+        Using g As Graphics = Graphics.FromImage(result)
+            Dim yOffset As Integer = 0
+            Dim stepSize As Integer = height \ images.Count
+
+            For Each img In images
+                g.DrawImage(img, New Rectangle(0, yOffset, width, stepSize), 0, 0, width, height, GraphicsUnit.Pixel)
+                yOffset += stepSize
+            Next
+        End Using
+
+        Return result
+    End Function
+
+    Private Function ResizeImage(originalImage As Image, newSize As Size) As Image
+        Dim resizedBitmap As New Bitmap(newSize.Width, newSize.Height)
+        Using g As Graphics = Graphics.FromImage(resizedBitmap)
+            g.InterpolationMode = Drawing.Drawing2D.InterpolationMode.HighQualityBicubic
+            g.DrawImage(originalImage, 0, 0, newSize.Width, newSize.Height)
+        End Using
+        Return resizedBitmap
+    End Function
+
+    Private Function ResizeImageToSize(originalImage As Bitmap, newSize As Size) As Bitmap
+        Dim resizedBitmap As New Bitmap(newSize.Width, newSize.Height)
+        Using g As Graphics = Graphics.FromImage(resizedBitmap)
+            g.InterpolationMode = Drawing.Drawing2D.InterpolationMode.HighQualityBicubic
+            g.DrawImage(originalImage, 0, 0, newSize.Width, newSize.Height)
+        End Using
+        Return resizedBitmap
+    End Function
 
     ' Add JPG Overlay
     Private Function AddJPGOverlay(img As Image) As Image
@@ -861,206 +933,23 @@ Public Class Form1
         Return bmp
     End Function
 
-    ' Temp Picture Box Click Event
-    Private Sub FinalPictureBox_Click(sender As Object, e As EventArgs) Handles FinalPictureBox.Click
-        If FinalPictureBox.Image IsNot Nothing Then
-            ' Display the modified image with the overlay in a new window
-            ShowFullSizeImage()
-        End If
-    End Sub
-
-    ' Background Color Click Event
-    Private Sub BGTextOverlay_Click(sender As Object, e As EventArgs) Handles BGTextOverlay.Click
-        Using colorDialog As New ColorDialog()
-            If colorDialog.ShowDialog() = DialogResult.OK Then
-                Dim overlayBackgroundColor = colorDialog.Color
-                BGTextOverlay.BackColor = overlayBackgroundColor
-                UpdateCustomOverlay()
-            End If
-        End Using
-    End Sub
-
-    ' Font Color Click Event
-    Private Sub FontTextOverlay_Click(sender As Object, e As EventArgs) Handles FontTextOverlay.Click
-        Using colorDialog As New ColorDialog()
-            If colorDialog.ShowDialog() = DialogResult.OK Then
-                Dim overlayTextColor = colorDialog.Color
-                FontTextOverlay.BackColor = overlayTextColor
-                UpdateCustomOverlay()
-            End If
-        End Using
-    End Sub
-
-    Private Sub UpdateCustomOverlay()
-        If JPGOverlay.Checked = True Then
-            ThumbnailEdition.Visible = True
-        Else
-            ThumbnailEdition.Visible = False
-        End If
-    End Sub
-
     Private Function ReloadFromBackupAndApplyOverlay() As Image
         Dim backupPath As String = Path.Combine(Path.GetTempPath(), "screenshot_backup.jpg")
 
         If Not File.Exists(backupPath) Then
-            UpdateStatusBox("Error: No backup found.")
+            UpdateStatusBox("❌ No backup found, restore impossible.")
             Return Nothing
         End If
 
-        Dim backupImg As Image
         Try
             Using tempStream As New FileStream(backupPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)
-                backupImg = New Bitmap(tempStream)
+                Dim backupImg As New Bitmap(tempStream)
+                Return ApplyOverlayToImage(backupImg) ' Apply overlay after restoring
             End Using
         Catch ex As Exception
-            UpdateStatusBox("Error loading the backup: " & ex.Message)
+            UpdateStatusBox("Error loading backup: " & ex.Message)
             Return Nothing
         End Try
-
-        ' Apply the overlay and return the final image
-        Return ApplyOverlayToImage(backupImg)
-    End Function
-
-    Private Sub OverlaySize_TextChanged(sender As Object, e As EventArgs) Handles OverlaySize.TextChanged
-        ' Check that the size is a valid number
-        Dim fontSize As Integer
-        If Integer.TryParse(OverlaySize.Text, fontSize) AndAlso fontSize > 0 Then
-            If JPGOverlay.Checked Then
-                UpdateOverlay()
-            End If
-        End If
-    End Sub
-
-    Private Sub TextPositionCombobox_SelectedIndexChanged(sender As Object, e As EventArgs) Handles TextPositionCombobox.SelectedIndexChanged
-        ' Update the current position
-        Select Case TextPositionCombobox.SelectedIndex
-            Case 0 : currentTextPosition = TextPosition.UL
-            Case 1 : currentTextPosition = TextPosition.UM
-            Case 2 : currentTextPosition = TextPosition.UR
-            Case 3 : currentTextPosition = TextPosition.BL
-            Case 4 : currentTextPosition = TextPosition.BM
-            Case 5 : currentTextPosition = TextPosition.BR
-            Case 6 : currentTextPosition = TextPosition.MM
-        End Select
-
-        ' Check if JPGOverlay is checked before applying the overlay
-        If JPGOverlay.Checked Then
-            UpdateOverlay()
-        End If
-    End Sub
-
-    Private Sub CustomOverlay_TextChanged(sender As Object, e As EventArgs) Handles CustomOverlay.TextChanged
-        UpdateOverlay()
-    End Sub
-
-    Private Sub MarginBorder_TextChanged(sender As Object, e As EventArgs) Handles MarginBorder.TextChanged
-        UpdateOverlay()
-    End Sub
-
-    Private Sub UpdateOverlay()
-        Dim backupPath As String = Path.Combine(Path.GetTempPath(), "screenshot_backup.jpg")
-
-        If Not File.Exists(backupPath) Then
-            UpdateStatusBox("No backup image found.")
-            Return
-        End If
-
-        ' Load the backup image
-        Dim backupImg As Image
-        Using tempStream As New FileStream(backupPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)
-            backupImg = New Bitmap(tempStream)
-        End Using
-
-        ' Apply the overlay
-        Dim overlayedImg As Image = ApplyOverlayToImage(backupImg)
-
-        ' Assign the final image and refresh
-        FinalPictureBox.Image = overlayedImg
-        FinalPictureBox.Refresh()
-    End Sub
-
-    Private Function ApplyOverlayToImage(originalImg As Image) As Image
-        If originalImg Is Nothing Then Return Nothing
-
-        Dim bmp As New Bitmap(originalImg)
-        Using g As Graphics = Graphics.FromImage(bmp)
-            Dim pos As Point
-
-            ' Get the margin size from the textbox
-            Dim BordersSize As Integer
-            If Not Integer.TryParse(MarginBorder.Text, BordersSize) OrElse BordersSize <= 0 Then
-                BordersSize = 15 ' Default value if invalid
-            End If
-            BordersSize = Math.Max(5, Math.Min(BordersSize, 100)) ' Clamp between 5 and 100
-
-            ' Calculate proportional margins based on the image
-            Dim MarginOffsetX As Integer = bmp.Width \ BordersSize
-            Dim MarginOffsetY As Integer = bmp.Height \ BordersSize
-
-            ' Get the font size
-            Dim fontSize As Integer
-            If Not Integer.TryParse(OverlaySize.Text, fontSize) OrElse fontSize <= 0 Then
-                fontSize = 40 ' Default value if invalid
-            End If
-            fontSize = Math.Max(5, Math.Min(fontSize, 100))
-
-            ' Calculate the font size based on the image height
-            Dim fontRatio As Double = 40 / 360 ' 40px for a 360px high video
-            Dim calculatedFontSize As Integer = CInt(bmp.Height * fontRatio)
-
-            ' Prevent very small or very large values
-            calculatedFontSize = Math.Max(5, Math.Min(calculatedFontSize, 100))
-
-            ' Create the font and measure the text
-            Dim font As Font = New Font("System", calculatedFontSize, FontStyle.Bold)
-            Dim textSize As SizeF = g.MeasureString(CustomOverlay.Text, font)
-
-            ' Dimensions of the rectangle around the text
-            Dim padding As Integer = 10
-            Dim rectWidth As Integer = CInt(textSize.Width) + padding * 2
-            Dim rectHeight As Integer = CInt(textSize.Height) + padding * 2
-
-            ' Add half of the margin to center equally (for MM)
-            Dim halfMarginX As Integer = MarginOffsetX \ 2
-            Dim halfMarginY As Integer = MarginOffsetY \ 2
-
-            ' Position the rectangle based on the margin
-            Select Case currentTextPosition
-                Case TextPosition.UL ' Top Left
-                    pos = New Point(MarginOffsetX, MarginOffsetY + rectHeight)
-                Case TextPosition.UM ' Top Middle
-                    pos = New Point((bmp.Width - rectWidth) \ 2, MarginOffsetY + rectHeight)
-                Case TextPosition.UR ' Top Right
-                    pos = New Point(bmp.Width - rectWidth - MarginOffsetX, MarginOffsetY + rectHeight)
-                Case TextPosition.BL ' Bottom Left
-                    pos = New Point(MarginOffsetX, bmp.Height - MarginOffsetY)
-                Case TextPosition.BM ' Bottom Middle
-                    pos = New Point((bmp.Width - rectWidth) \ 2, bmp.Height - MarginOffsetY)
-                Case TextPosition.BR ' Bottom Right
-                    pos = New Point(bmp.Width - rectWidth - MarginOffsetX, bmp.Height - MarginOffsetY)
-                Case TextPosition.MM ' Center screen with balanced margin
-                    pos = New Point((bmp.Width \ 2) - (rectWidth / 2), (bmp.Height \ 2) + (rectHeight / 2))
-            End Select
-
-            ' Final adjustment: rect.Y should be positioned above the text
-            Dim rectX As Integer = pos.X
-            Dim rectY As Integer = pos.Y - rectHeight ' Subtract to place the text correctly
-
-            ' Check to avoid going out of the image
-            rectX = Math.Max(0, Math.Min(bmp.Width - rectWidth, rectX))
-            rectY = Math.Max(0, Math.Min(bmp.Height - rectHeight, rectY))
-
-            ' Draw the background rectangle
-            Dim rect As New Rectangle(rectX, rectY, rectWidth, rectHeight)
-            g.FillRectangle(New SolidBrush(CustomOverlay.BackColor), rect)
-
-            ' Draw the text centered within the rectangle
-            Dim textX As Single = rect.X + (rect.Width - textSize.Width) / 2
-            Dim textY As Single = rect.Y + (rect.Height - textSize.Height) / 2
-            g.DrawString(CustomOverlay.Text, font, New SolidBrush(CustomOverlay.ForeColor), textX, textY)
-        End Using
-
-        Return bmp
     End Function
 
     Private Sub IconInThumbnail_CheckedChanged(sender As Object, e As EventArgs)
@@ -1109,45 +998,6 @@ Public Class Form1
         Using tempStream As New FileStream(backupPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)
             Return New Bitmap(tempStream)
         End Using
-    End Function
-
-    Private Sub UpdateFinalImage()
-        Dim backupPath As String = Path.Combine(Path.GetTempPath(), "screenshot_backup.jpg")
-        If Not File.Exists(backupPath) Then Exit Sub
-
-        ' Load the backup image
-        Dim backupImg As Image
-        Using tempStream As New FileStream(backupPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)
-            backupImg = New Bitmap(tempStream)
-        End Using
-
-        ' Apply the overlay if the checkbox is checked
-        If IconInThumbnail Then
-            FinalPictureBox.Image = ApplyOverlayToImage(backupImg)
-        Else
-            FinalPictureBox.Image = backupImg
-        End If
-    End Sub
-
-    ' Resize an image
-    Private Function ResizeImageToMaxSize(originalImage As Bitmap, maxSize As Integer) As Bitmap
-        Dim newWidth As Integer = originalImage.Width
-        Dim newHeight As Integer = originalImage.Height
-
-        If newWidth > newHeight AndAlso newWidth > maxSize Then
-            newHeight = CInt(newHeight * (maxSize / newWidth))
-            newWidth = maxSize
-        ElseIf newHeight > maxSize Then
-            newWidth = CInt(newWidth * (maxSize / newHeight))
-            newHeight = maxSize
-        End If
-
-        Dim resizedBitmap As New Bitmap(newWidth, newHeight)
-        Using g As Graphics = Graphics.FromImage(resizedBitmap)
-            g.InterpolationMode = Drawing.Drawing2D.InterpolationMode.HighQualityBicubic
-            g.DrawImage(originalImage, 0, 0, newWidth, newHeight)
-        End Using
-        Return resizedBitmap
     End Function
 
     Private Sub FullSizePictureBox_MouseDown(sender As Object, e As MouseEventArgs)
@@ -1238,76 +1088,13 @@ Public Class Form1
         End If
 
         If ApplyThumbnailToFile(selectedVideo) Then
-            UpdateStatusBox("Thumbnail applied successfully!")
+            UpdateStatusBox("Successfully added to " & Path.GetFileName(selectedVideo))
+            Beep()
+            RefreshExplorerThumbnail(selectedVideo)
         Else
             UpdateStatusBox("Error applying thumbnail.")
         End If
-
-        RefreshExplorerThumbnail(selectedVideo)
-        MsgBox("Successfully added to " & Path.GetFileName(selectedVideo))
     End Sub
-
-    ' Apply Thumbnail New File Button Click Event
-    Private Sub ApplyThumbnailNewFileButton_Click(sender As Object, e As EventArgs) Handles ApplyToNewFile.Click
-        If String.IsNullOrEmpty(selectedVideo) OrElse FinalPictureBox.Image Is Nothing Then
-            UpdateStatusBox("Select a video and a thumbnail before applying.")
-            Return
-        End If
-
-        Dim newFilePath As String = Path.Combine(Path.GetDirectoryName(selectedVideo), Path.GetFileNameWithoutExtension(selectedVideo) & "_newthumb" & Path.GetExtension(selectedVideo))
-
-        If File.Exists(newFilePath) Then
-            File.Delete(newFilePath)
-        End If
-
-        File.Copy(selectedVideo, newFilePath)
-
-        If ApplyThumbnailToFile(newFilePath) Then
-            UpdateStatusBox("Thumbnail applied successfully to the copy!")
-        Else
-            UpdateStatusBox("Error applying thumbnail to the copy.")
-        End If
-
-        RefreshExplorerThumbnail(newFilePath)
-        MsgBox("Successful copy: " & Path.GetFileNameWithoutExtension(newFilePath))
-    End Sub
-
-    ' Apply Thumbnail to File
-    Private Function ApplyThumbnailToFile(targetFile As String) As Boolean
-        Try
-            Dim tempThumbnailPath As String = Path.Combine(Path.GetTempPath(), "new_thumbnail.jpg")
-            FinalPictureBox.Image.Save(tempThumbnailPath, Imaging.ImageFormat.Jpeg)
-
-            Dim ffmpegPath As String = Me.FFmpegPath.Text
-            If Not File.Exists(ffmpegPath) Then
-                UpdateStatusBox("FFmpeg file not found!")
-                Return False
-            End If
-
-            Dim cmd As String = $"-i ""{targetFile}"" -i ""{tempThumbnailPath}"" -map 0 -map 1 -c copy -disposition:v:1 attached_pic ""{targetFile}_tmp.mp4"""
-            Dim process As New Process()
-            process.StartInfo.FileName = ffmpegPath
-            process.StartInfo.Arguments = cmd
-            process.StartInfo.CreateNoWindow = True
-            process.StartInfo.UseShellExecute = False
-            process.Start()
-            process.WaitForExit()
-
-            If File.Exists(targetFile & "_tmp.mp4") Then
-                File.Delete(targetFile)
-                File.Move(targetFile & "_tmp.mp4", targetFile)
-
-                ClearThumbnailCache()
-
-                Return True
-            Else
-                Return False
-            End If
-        Catch ex As Exception
-            UpdateStatusBox("Error applying thumbnail: " & ex.Message)
-            Return False
-        End Try
-    End Function
 
     ' Refresh Explorer Thumbnail
     Private Sub RefreshExplorerThumbnail(filePath As String)
@@ -1344,11 +1131,951 @@ Public Class Form1
     Private Sub SaveBackup()
         Dim backupPath As String = Path.Combine(Path.GetTempPath(), "screenshot_backup.jpg")
         If FinalPictureBox.Image IsNot Nothing Then
-            Try
-                FinalPictureBox.Image.Save(backupPath, Imaging.ImageFormat.Jpeg)
-            Catch ex As Exception
-                UpdateStatusBox("Error saving the backup: " & ex.Message)
-            End Try
+            FinalPictureBox.Image.Save(backupPath, Imaging.ImageFormat.Jpeg)
         End If
     End Sub
+
+    Private Function LoadBackupForScreenshot(screenshotPath As String) As Image
+        Dim backupFolder As String = Path.Combine(Path.GetTempPath(), "ScreenshotBackups")
+        Dim backupPath As String = Path.Combine(backupFolder, Path.GetFileName(screenshotPath))
+
+        If File.Exists(backupPath) Then
+            Return New Bitmap(backupPath)
+        Else
+            UpdateStatusBox("❌ No backup found for this image.")
+            Return Nothing
+        End If
+    End Function
+
+    Private Sub SaveBackupForMerge(mergedImage As Image)
+        Try
+            Dim backupFolder As String = Path.Combine(Path.GetTempPath(), "ScreenshotBackups")
+            If Not Directory.Exists(backupFolder) Then Directory.CreateDirectory(backupFolder)
+
+            Dim mergeBackupPath As String = Path.Combine(backupFolder, "merged_image.jpg")
+            mergedImage.Save(mergeBackupPath, Imaging.ImageFormat.Jpeg)
+        Catch ex As Exception
+            UpdateStatusBox("❌ Error saving the merge backup: " & ex.Message)
+        End Try
+    End Sub
+
+    Private Sub MultiScreen_DoubleClick(sender As Object, e As EventArgs) Handles ThumbnailFlowPanel.DoubleClick
+        If ThumbnailFlowPanel.Controls.Count > 0 Then
+            Dim selectedItem As Control = ThumbnailFlowPanel.Controls(ThumbnailFlowPanel.Controls.Count - 1)
+            Dim fileToDelete As String = selectedItem.Tag.ToString()
+
+            If File.Exists(fileToDelete) Then
+                Try
+                    File.Delete(fileToDelete)
+                    UpdateStatusBox("🗑️ Screenshot deleted: " & fileToDelete)
+                Catch ex As Exception
+                    UpdateStatusBox("❌ Error deleting: " & ex.Message)
+                End Try
+            End If
+
+            ThumbnailFlowPanel.Controls.Remove(selectedItem)
+            UpdateMergeControlsVisibility()
+        End If
+    End Sub
+
+    Private Sub ResetScreenshotState()
+        Threading.Thread.Sleep(100)
+        TakeScreenShot.Enabled = True
+        isCapturing = False
+    End Sub
+
+    Private Sub SaveBackupForScreenshot(img As Image)
+        Try
+            Dim backupFolder As String = Path.Combine(Path.GetTempPath(), "ScreenshotBackups")
+            If Not Directory.Exists(backupFolder) Then Directory.CreateDirectory(backupFolder)
+
+            Dim backupPath As String = Path.Combine(backupFolder, "last_screenshot.jpg")
+
+            ' Verify and delete the existing file before saving
+            If File.Exists(backupPath) Then
+                File.Delete(backupPath)
+            End If
+
+            img.Save(backupPath, Imaging.ImageFormat.Jpeg)
+            UpdateStatusBox("✅ Backup saved: " & backupPath)
+        Catch ex As Exception
+            UpdateStatusBox("❌ Error saving backup: " & ex.Message)
+        End Try
+    End Sub
+
+    Private Sub SaveBackupForFinalPictureBox()
+        If FinalPictureBox.Image Is Nothing Then Return
+
+        Try
+            Dim backupFolder As String = Path.Combine(Path.GetTempPath(), "ScreenshotBackups")
+            If Not Directory.Exists(backupFolder) Then Directory.CreateDirectory(backupFolder)
+
+            Dim backupPath As String = Path.Combine(backupFolder, "final_screenshot_backup.jpg")
+
+            ' Delete the old backup if it exists
+            If File.Exists(backupPath) Then File.Delete(backupPath)
+
+            FinalPictureBox.Image.Save(backupPath, Imaging.ImageFormat.Jpeg)
+            UpdateStatusBox("✅ Image backup saved.")
+
+        Catch ex As Exception
+            UpdateStatusBox("❌ Error saving backup: " & ex.Message)
+        End Try
+    End Sub
+
+    Private Sub UpdateOverlay()
+        If FinalPictureBox.Image Is Nothing Then Return
+
+        ' Save the image before modification
+        SaveBackupForFinalPictureBox()
+
+        ' Apply the overlay
+        Dim updatedImg As Image = ApplyOverlayToImage(FinalPictureBox.Image)
+        If updatedImg IsNot Nothing Then
+            FinalPictureBox.Image = updatedImg
+            FinalPictureBox.Refresh()
+        End If
+    End Sub
+
+    Private Sub SaveOriginalScreenshot(img As Image, filePath As String)
+        Try
+            Dim backupFolder As String = Path.Combine(Path.GetTempPath(), "ScreenshotBackups")
+            If Not Directory.Exists(backupFolder) Then Directory.CreateDirectory(backupFolder)
+
+            ' Save the original with a suffix _original.jpg
+            Dim originalPath As String = Path.Combine(backupFolder, Path.GetFileNameWithoutExtension(filePath) & "_original.jpg")
+
+            ' Verify and delete the existing file before saving
+            If File.Exists(originalPath) Then File.Delete(originalPath)
+
+            img.Save(originalPath, Imaging.ImageFormat.Jpeg)
+            UpdateStatusBox("✅ Original screenshot saved without overlay: " & originalPath)
+
+        Catch ex As Exception
+            UpdateStatusBox("❌ Error saving original screenshot: " & ex.Message)
+        End Try
+    End Sub
+
+    Private Sub FinalPictureBox_Click(sender As Object, e As EventArgs) Handles FinalPictureBox.Click
+        If FinalPictureBox.Image Is Nothing Then Return
+
+        ' Make a copy of the current image to avoid any modification
+        Dim tempCopy As New Bitmap(FinalPictureBox.Image)
+
+        ' Open a window to display the image in full size
+        Dim fullSizeForm As New Form With {
+        .Text = "Final Image Preview",
+        .Size = New Size(tempCopy.Width + 20, tempCopy.Height + 80),
+        .StartPosition = FormStartPosition.CenterScreen
+    }
+
+        Dim pictureBox As New PictureBox With {
+        .Image = tempCopy,
+        .SizeMode = PictureBoxSizeMode.Zoom,
+        .Dock = DockStyle.Fill
+    }
+
+        fullSizeForm.Controls.Add(pictureBox)
+        fullSizeForm.ShowDialog()
+
+        ' Clean up memory
+        pictureBox.Image.Dispose()
+        tempCopy.Dispose()
+    End Sub
+
+    Private Sub AddThumbnailToFlowPanel(image As Image, filePath As String)
+        Dim thumbnailSize As Integer = 80 ' Thumbnail size
+        Dim pb As New PictureBox With {
+        .Width = thumbnailSize,
+        .Height = thumbnailSize,
+        .SizeMode = PictureBoxSizeMode.Zoom,
+        .Image = New Bitmap(image, thumbnailSize, thumbnailSize),
+        .Tag = filePath ' Store the file path
+    }
+
+        ' Add an event to update FinalPictureBox when clicked
+        AddHandler pb.Click, AddressOf Thumbnail_Clicked
+
+        ' Add the image to the FlowLayoutPanel
+        ThumbnailFlowPanel.Controls.Add(pb)
+
+        UpdateMergeControlsVisibility()
+    End Sub
+
+    Private Function ResizeImageToMaxSize(originalImage As Bitmap, maxHeight As Integer) As Bitmap
+        Dim newWidth As Integer = originalImage.Width
+        Dim newHeight As Integer = originalImage.Height
+
+        If newHeight > maxHeight Then
+            Dim ratio As Double = maxHeight / CDbl(newHeight)
+            newWidth = CInt(newWidth * ratio)
+            newHeight = maxHeight
+        End If
+
+        Dim resizedBitmap As New Bitmap(newWidth, newHeight)
+        Using g As Graphics = Graphics.FromImage(resizedBitmap)
+            g.InterpolationMode = Drawing.Drawing2D.InterpolationMode.HighQualityBicubic
+            g.DrawImage(originalImage, 0, 0, newWidth, newHeight)
+        End Using
+
+        Return resizedBitmap
+    End Function
+
+    Private Sub SaveBackupForScreenshot(screenshotPath As String)
+        Try
+            Dim backupFolder As String = Path.Combine(Path.GetTempPath(), "ScreenshotBackups")
+            If Not Directory.Exists(backupFolder) Then Directory.CreateDirectory(backupFolder)
+
+            ' Create a backup file BEFORE overlay
+            Dim originalBackupPath As String = Path.Combine(backupFolder, Path.GetFileNameWithoutExtension(screenshotPath) & "_original.jpg")
+
+            ' Verify and delete if a backup already exists
+            If File.Exists(originalBackupPath) Then File.Delete(originalBackupPath)
+
+            ' Save the original image
+            File.Copy(screenshotPath, originalBackupPath, True)
+
+            UpdateStatusBox("✅ Backup saved: " & originalBackupPath)
+        Catch ex As Exception
+            UpdateStatusBox("❌ Error saving backup: " & ex.Message)
+        End Try
+    End Sub
+
+    Private Sub MultiScreenThumbnail_CheckedChanged(sender As Object, e As EventArgs)
+        ' Iterate through the child controls of the FlowLayoutPanel
+        For Each control As Control In ThumbnailFlowPanel.Controls
+            If TypeOf control Is PictureBox Then
+                Dim pb As PictureBox = CType(control, PictureBox)
+                Dim filePath As String = pb.Tag.ToString()
+                If File.Exists(filePath) Then
+                    Try
+                        File.Delete(filePath)
+                    Catch ex As Exception
+                        UpdateStatusBox("Error deleting: " & ex.Message)
+                    End Try
+                End If
+            End If
+        Next
+
+        ' Clear the FlowLayoutPanel
+        ThumbnailFlowPanel.Controls.Clear()
+
+        ' Reset the final image
+        FinalPictureBox.Image = Nothing
+
+        ' Update the visibility of merge controls
+        UpdateMergeControlsVisibility()
+
+        ' Restore the image from backup if available
+        Dim backupPath As String = Path.Combine(Path.GetTempPath(), "screenshot_backup.jpg")
+        If File.Exists(backupPath) Then
+            Try
+                Using tempStream As New FileStream(backupPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)
+                    Dim originalImage As New Bitmap(tempStream)
+                    FinalPictureBox.Image = ResizeImageToMaxSize(originalImage, 800)
+                End Using
+                UpdateStatusBox("Backup restored after disabling MultiScreen.")
+            Catch ex As Exception
+                UpdateStatusBox("Error loading backup: " & ex.Message)
+            End Try
+        Else
+            UpdateStatusBox("No backup found, unable to restore the original image.")
+        End If
+    End Sub
+
+    Private Sub BackupFinalImage()
+        If FinalPictureBox.Image Is Nothing Then Return
+
+        Try
+            Dim backupFolder As String = Path.Combine(Path.GetTempPath(), "ScreenshotBackups")
+            If Not Directory.Exists(backupFolder) Then Directory.CreateDirectory(backupFolder)
+
+            Dim backupPath As String = Path.Combine(backupFolder, "final_backup.jpg")
+
+            ' Verify and delete the existing backup before saving the new one
+            If File.Exists(backupPath) Then File.Delete(backupPath)
+
+            ' Save the displayed image before any modification
+            FinalPictureBox.Image.Save(backupPath, Imaging.ImageFormat.Jpeg)
+
+            UpdateStatusBox("✅ Backup saved for the displayed image.")
+        Catch ex As Exception
+            UpdateStatusBox("❌ Error saving backup: " & ex.Message)
+        End Try
+    End Sub
+
+    Private Sub MultiScreen_SelectedIndexChanged(sender As Object, e As EventArgs) Handles ThumbnailFlowPanel.ControlAdded
+        If ThumbnailFlowPanel.Controls.Count = 0 Then Return
+
+        Dim pb As PictureBox = TryCast(ThumbnailFlowPanel.Controls(ThumbnailFlowPanel.Controls.Count - 1), PictureBox)
+        If pb IsNot Nothing AndAlso File.Exists(pb.Tag.ToString()) Then
+            Using tempImg As New Bitmap(pb.Tag.ToString())
+                FinalPictureBox.Image = New Bitmap(tempImg)
+            End Using
+            UpdateStatusBox("✅ Original image restored.")
+        Else
+            UpdateStatusBox("❌ Error: file not found.")
+        End If
+    End Sub
+
+    Private Sub MergeScreen_Click(sender As Object, e As EventArgs) Handles MergeScreen.Click
+        Dim mergedImg As Image = MergeImages()
+        If mergedImg IsNot Nothing Then
+            FinalPictureBox.Image = ResizeImageToMaxSize(mergedImg, 800)
+            UpdateStatusBox("✅ Merge successful.")
+
+            ' Create a backup of the merged image BEFORE overlay
+            BackupFinalImage()
+        Else
+            UpdateStatusBox("❌ Error merging.")
+        End If
+    End Sub
+
+    ' Inline assignment helper to avoid compilation errors
+    Private Function InlineAssignHelper(Of T)(ByRef target As T, value As T) As T
+        target = value
+        Return value
+    End Function
+
+    Private Function ResizeThumbnail(originalImage As Image, maxHeight As Integer) As Bitmap
+        Dim ratio As Double = maxHeight / CDbl(originalImage.Height)
+        Dim newWidth As Integer = CInt(originalImage.Width * ratio)
+        Dim resizedBitmap As New Bitmap(newWidth, maxHeight)
+
+        Using g As Graphics = Graphics.FromImage(resizedBitmap)
+            g.InterpolationMode = Drawing.Drawing2D.InterpolationMode.HighQualityBicubic
+            g.DrawImage(originalImage, 0, 0, newWidth, maxHeight)
+        End Using
+
+        Return resizedBitmap
+    End Function
+
+    Private Sub ApplyOverlayFromBackup()
+        Try
+            Dim backupPath As String = Path.Combine(Path.GetTempPath(), "screenshot_backup_" & Path.GetFileNameWithoutExtension(selectedVideo) & ".jpg")
+
+            If Not File.Exists(backupPath) Then
+                UpdateStatusBox("❌ No backup found, overlay canceled.")
+                Return
+            End If
+
+            ' Load the backup image
+            Using tempStream As New FileStream(backupPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)
+                Dim baseImage As New Bitmap(tempStream)
+
+                ' Apply the overlay
+                Dim overlayedImage As Image = ApplyOverlayToImage(baseImage)
+
+                ' Update the display
+                FinalPictureBox.Image = ResizeImageToMaxSize(overlayedImage, 800)
+                FinalPictureBox.Refresh()
+            End Using
+
+            UpdateStatusBox("✅ Overlay applied successfully.")
+
+        Catch ex As Exception
+            UpdateStatusBox("❌ Error applying overlay: " & ex.Message)
+        End Try
+    End Sub
+
+    Private Sub VideoClicked(sender As Object, e As EventArgs)
+        ' Clear MultiScreen before loading a new video
+        EmptyMultiScreenStuff()
+
+        Dim pb As PictureBox = TryCast(sender, PictureBox)
+        If pb?.Tag Is Nothing OrElse String.IsNullOrEmpty(pb.Tag.ToString()) Then
+            UpdateStatusBox("❌ Error: no video associated with this thumbnail.")
+            Return
+        End If
+
+        selectedVideo = pb.Tag.ToString()
+
+        ' Verify if the file exists
+        If Not File.Exists(selectedVideo) Then
+            UpdateStatusBox("❌ The selected video does not exist.")
+            Return
+        End If
+
+        ' Update information for the selected video
+        ActualFileName.Text = Path.GetFileName(selectedVideo)
+        GroupThumb.Text = $"Thumbnails from {ActualFileName.Text}"
+
+        ' Retrieve the video duration and display it
+        Dim videoDuration As Integer = GetVideoDuration(selectedVideo)
+        If videoDuration > 0 Then
+            Dim formattedDuration As String = TimeSpan.FromSeconds(videoDuration).ToString("hh\:mm\:ss")
+            VideoFullTimeTextbox.Text = formattedDuration ' Update the TextBox
+        Else
+            VideoFullTimeTextbox.Text = "00:00:00" ' If duration is not found
+        End If
+
+        ' Check thumbnail compatibility
+        Dim supportsThumbnails As Boolean = CheckThumbnailSupport(selectedVideo)
+
+        ' Load the Windows thumbnail (always available)
+        Dim windowsThumbnail As Image = GetWindowsVideoThumbnail(selectedVideo)
+        WindowsIconThumbnail.Image = windowsThumbnail
+
+        ' Manage interface display based on thumbnail support
+        Dim thumbnailsVisible As Boolean = supportsThumbnails
+        ThumbnailEdition.Visible = thumbnailsVisible
+        VideoFileActionsGroup.Visible = thumbnailsVisible
+
+        ' Load thumbnails only if the format is supported
+        If supportsThumbnails Then LoadThumbnails(selectedVideo)
+
+        ' Load the video into the player
+        Try
+            With Video
+                .URL = selectedVideo
+                .Ctlcontrols.stop()
+                .uiMode = "full"
+                .settings.volume = 50
+                .fullScreen = False
+                AddHandler .PlayStateChange, AddressOf Video_PlayStateChanged
+                .Ctlcontrols.play()
+            End With
+        Catch ex As Exception
+            UpdateStatusBox("❌ Error loading video: " & ex.Message)
+        End Try
+    End Sub
+
+    Function AddBorderToImage(ByVal img As Image, ByVal borderWidth As Integer) As Image
+        Dim newImg As New Bitmap(img.Width + (borderWidth * 2), img.Height + (borderWidth * 2))
+        Using g As Graphics = Graphics.FromImage(newImg)
+            g.Clear(Color.Black) ' Black border
+            g.DrawImage(img, borderWidth, borderWidth, img.Width, img.Height) ' Center the image
+        End Using
+        Return newImg
+    End Function
+
+    Private Sub UpdateMergeControlsVisibility()
+        Dim imageCount As Integer = ThumbnailFlowPanel.Controls.OfType(Of PictureBox)().Count()
+
+        If imageCount >= 2 Then
+            MergeScreen.Visible = True
+            MergeMethodCombobox.Visible = True
+        Else
+            MergeScreen.Visible = False
+            MergeMethodCombobox.Visible = False
+        End If
+
+        UpdateStatusBox("🖼️ Number of screenshots in FlowPanel: " & imageCount)
+    End Sub
+
+    Private Function ApplyOverlayToImage(originalImg As Image) As Image
+        If originalImg Is Nothing Then Return Nothing
+
+        Dim bmp As New Bitmap(originalImg)
+        Using g As Graphics = Graphics.FromImage(bmp)
+            Dim pos As Point
+            Dim BordersSize As Integer = Math.Max(5, Math.Min(If(Integer.TryParse(MarginBorder.Text, BordersSize), BordersSize, 15), 100))
+            Dim fontSize As Integer = Math.Max(5, Math.Min(If(Integer.TryParse(OverlaySize.Text, fontSize), fontSize, 40), 100))
+
+            Dim font As Font = New Font("Arial", fontSize, FontStyle.Bold)
+            Dim textSize As SizeF = g.MeasureString(CustomOverlay.Text, font)
+            Dim rectWidth As Integer = CInt(textSize.Width) + 20
+            Dim rectHeight As Integer = CInt(textSize.Height) + 20
+
+            Select Case currentTextPosition
+                Case TextPosition.UL : pos = New Point(BordersSize, BordersSize)
+                Case TextPosition.UM : pos = New Point((bmp.Width - rectWidth) \ 2, BordersSize)
+                Case TextPosition.UR : pos = New Point(bmp.Width - rectWidth - BordersSize, BordersSize)
+                Case TextPosition.BL : pos = New Point(BordersSize, bmp.Height - rectHeight - BordersSize)
+                Case TextPosition.BM : pos = New Point((bmp.Width - rectWidth) \ 2, bmp.Height - rectHeight - BordersSize)
+                Case TextPosition.BR : pos = New Point(bmp.Width - rectWidth - BordersSize, bmp.Height - rectHeight - BordersSize)
+                Case TextPosition.MM : pos = New Point((bmp.Width - rectWidth) \ 2, (bmp.Height - rectHeight) \ 2)
+            End Select
+
+            g.FillRectangle(New SolidBrush(BGTextOverlay.BackColor), New Rectangle(pos.X, pos.Y, rectWidth, rectHeight))
+            g.DrawString(CustomOverlay.Text, font, New SolidBrush(FontTextOverlay.BackColor), pos.X + 10, pos.Y + 10)
+        End Using
+
+        Return bmp
+    End Function
+
+    Private Sub UpdateFinalImage()
+        If FinalPictureBox.Image Is Nothing Then Return
+
+        ' Save the image before modification
+        SaveBackupForFinalPictureBox()
+
+        ' Apply the overlay
+        Dim updatedImg As Image = ApplyOverlayToImage(FinalPictureBox.Image)
+        If updatedImg IsNot Nothing Then
+            FinalPictureBox.Image = updatedImg
+            FinalPictureBox.Refresh()
+        End If
+    End Sub
+
+    Private Sub TakeScreenShot_Click(sender As Object, e As EventArgs) Handles TakeScreenShot.Click
+        If isCapturing Then Exit Sub
+        isCapturing = True
+        TakeScreenShot.Enabled = False
+
+        If String.IsNullOrEmpty(selectedVideo) Then
+            UpdateStatusBox("❌ No video is currently playing.")
+            ResetScreenshotState()
+            Return
+        End If
+
+        Dim timestamp As Integer = CInt(Video.Ctlcontrols.currentPosition)
+        Dim tempFolder As String = Path.Combine(Path.GetTempPath(), "VideoThumbnails")
+        If Not Directory.Exists(tempFolder) Then Directory.CreateDirectory(tempFolder)
+
+        Dim uniqueFilename As String = $"screenshot_{DateTime.Now:yyyyMMdd_HHmmssfff}.jpg"
+        Dim filePath As String = Path.Combine(tempFolder, uniqueFilename)
+
+        ' Capture the screenshot
+        Dim screenshot As Image = GetFFmpegVideoThumbnail(selectedVideo, timestamp, 99)
+        If screenshot Is Nothing Then
+            UpdateStatusBox("❌ Error: The captured image is empty or invalid.")
+            ResetScreenshotState()
+            Return
+        End If
+
+        Try
+            screenshot.Save(filePath, Imaging.ImageFormat.Jpeg)
+            BackupDict(filePath) = New Bitmap(screenshot) ' Save the original image
+
+            ' Add to the FlowPanel
+            AddThumbnailToFlowPanel(screenshot, filePath)
+
+            ' Immediately load the image into the FinalPictureBox
+            LoadImageInFinalPictureBox(filePath)
+
+            UpdateStatusBox("✅ Screenshot added and saved.")
+        Catch ex As Exception
+            UpdateStatusBox("❌ Error: " & ex.Message)
+        Finally
+            ResetScreenshotState()
+        End Try
+    End Sub
+
+    Private Function GetCurrentImageFilePath() As String
+        For Each pb As PictureBox In ThumbnailFlowPanel.Controls
+            If pb.Image IsNot Nothing AndAlso pb.Image.Equals(FinalPictureBox.Image) Then
+                Return pb.Tag.ToString()
+            End If
+        Next
+        Return ""
+    End Function
+
+    Private Sub Thumbnail_Clicked(sender As Object, e As EventArgs)
+        Dim pb As PictureBox = CType(sender, PictureBox)
+        If pb Is Nothing OrElse pb.Tag Is Nothing Then Exit Sub
+
+        Debug.WriteLine("Thumbnail clicked: " & pb.Tag.ToString())
+
+        Dim timestamp As Integer
+        If Integer.TryParse(pb.Tag.ToString(), timestamp) Then
+            If Video.currentMedia IsNot Nothing Then
+                Video.Ctlcontrols.currentPosition = timestamp
+                Video.Ctlcontrols.play()
+                Debug.WriteLine("Jumped to: " & timestamp & " seconds")
+            Else
+                UpdateStatusBox("❌ No video is currently playing.")
+            End If
+        Else
+            UpdateStatusBox("❌ Error: unable to convert the timestamp.")
+        End If
+    End Sub
+
+    Private Sub LoadImageInFinalPictureBox(filePath As String)
+        If String.IsNullOrEmpty(filePath) OrElse Not File.Exists(filePath) Then Exit Sub
+
+        Dim originalImage As Image
+        If BackupDict.ContainsKey(filePath) Then
+            originalImage = New Bitmap(BackupDict(filePath)) ' Load the original image from the backup
+        Else
+            originalImage = Image.FromFile(filePath) ' Load the image from disk
+        End If
+
+        ' Update the final PictureBox
+        If FinalPictureBox.Image IsNot Nothing Then FinalPictureBox.Image.Dispose()
+        FinalPictureBox.Image = originalImage
+
+        ' Store the currently displayed file
+        CurrentImageFilePath = filePath
+
+        UpdateStatusBox("✅ Image displayed in FinalPictureBox.")
+    End Sub
+
+    Private Sub ResetOverlay_Click(sender As Object, e As EventArgs) Handles ResetOverlay.Click
+        If String.IsNullOrEmpty(CurrentImageFilePath) Then
+            UpdateStatusBox("❌ No file to reset.")
+            Exit Sub
+        End If
+
+        ' Reload the original image without overlay
+        LoadImageInFinalPictureBox(CurrentImageFilePath)
+
+        UpdateStatusBox("🔄 Reset: reverted to the original image without overlay.")
+    End Sub
+
+    Private Sub ApplyOverlayFromGroupBox()
+        If String.IsNullOrEmpty(CurrentImageFilePath) OrElse Not File.Exists(CurrentImageFilePath) Then Exit Sub
+
+        ' Reset: Reload the original image
+        LoadImageInFinalPictureBox(CurrentImageFilePath)
+
+        ' Apply the overlay to this image
+        Dim overlayedImage As Image = ApplyOverlayToImage(FinalPictureBox.Image)
+
+        ' Update FinalPictureBox
+        If overlayedImage IsNot Nothing Then
+            FinalPictureBox.Image.Dispose()
+            FinalPictureBox.Image = overlayedImage
+            FinalPictureBox.Refresh()
+            UpdateStatusBox("🎨 Overlay applied after reset.")
+        End If
+    End Sub
+
+    Private Sub TextPositionCombobox_SelectedIndexChanged(sender As Object, e As EventArgs) Handles TextPositionCombobox.SelectedIndexChanged
+        currentTextPosition = CType(TextPositionCombobox.SelectedIndex, TextPosition)
+        ApplyOverlayFromGroupBox()
+    End Sub
+
+    Private Sub OverlaySize_TextChanged(sender As Object, e As EventArgs) Handles OverlaySize.TextChanged
+        ApplyOverlayFromGroupBox()
+    End Sub
+
+    Private Sub MarginBorder_TextChanged(sender As Object, e As EventArgs) Handles MarginBorder.TextChanged
+        ApplyOverlayFromGroupBox()
+    End Sub
+
+    Private Sub BGTextOverlay_Click(sender As Object, e As EventArgs) Handles BGTextOverlay.Click
+        Using colorDialog As New ColorDialog()
+            If colorDialog.ShowDialog() = DialogResult.OK Then
+                BGTextOverlay.BackColor = colorDialog.Color
+                ApplyOverlayFromGroupBox()
+            End If
+        End Using
+    End Sub
+
+    Private Sub FontTextOverlay_Click(sender As Object, e As EventArgs) Handles FontTextOverlay.Click
+        Using colorDialog As New ColorDialog()
+            If colorDialog.ShowDialog() = DialogResult.OK Then
+                FontTextOverlay.BackColor = colorDialog.Color
+                ApplyOverlayFromGroupBox()
+            End If
+        End Using
+    End Sub
+
+    Private Sub CustomOverlay_TextChanged(sender As Object, e As EventArgs) Handles CustomOverlay.TextChanged
+        ApplyOverlayFromGroupBox()
+    End Sub
+
+    Private Function GetVideoInfo(videoPath As String) As String
+        Try
+            Dim ffmpegPath As String = Me.FFmpegPath.Text
+            If Not File.Exists(ffmpegPath) Then Return ""
+
+            Dim output As String = ""
+
+            Dim process As New Process()
+            process.StartInfo.FileName = ffmpegPath
+            process.StartInfo.Arguments = $"-i ""{videoPath}"" 2>&1"
+            process.StartInfo.RedirectStandardError = True
+            process.StartInfo.UseShellExecute = False
+            process.StartInfo.CreateNoWindow = True
+            process.Start()
+
+            output = process.StandardError.ReadToEnd()
+            process.WaitForExit()
+
+            Return output
+        Catch ex As Exception
+            Return ""
+        End Try
+    End Function
+
+    Private Function IsFileReadable(filePath As String) As Boolean
+        Try
+            Dim ffmpegPath As String = Me.FFmpegPath.Text
+            If Not File.Exists(ffmpegPath) Then
+                UpdateStatusBox("❌ FFmpeg not found.")
+                Return False
+            End If
+
+            ' FFmpeg command: read 5 seconds of video without displaying output
+            Dim cmd As String = $"-v error -i ""{filePath}"" -t 5 -f null -"
+
+            ' Configure the FFmpeg process
+            Dim process As New Process() With {
+            .StartInfo = New ProcessStartInfo(ffmpegPath, cmd) With {
+                .CreateNoWindow = True,
+                .UseShellExecute = False,
+                .RedirectStandardError = True
+            }
+        }
+
+            process.Start()
+
+            ' Read FFmpeg logs in real-time to detect errors
+            Dim errorLog As String = ""
+            Dim outputReader As StreamReader = process.StandardError
+            Dim startTime As DateTime = DateTime.Now
+
+            While Not process.HasExited
+                ' Timeout to prevent hanging (e.g., corrupted file)
+                If (DateTime.Now - startTime).TotalSeconds > 10 Then
+                    process.Kill()
+                    UpdateStatusBox("⏳ Timeout: FFmpeg is not responding, file may be corrupted.")
+                    Return False
+                End If
+
+                Dim line As String = outputReader.ReadLine()
+                If line IsNot Nothing Then
+                    errorLog &= line & vbCrLf
+                End If
+            End While
+
+            process.WaitForExit()
+
+            ' If FFmpeg completes successfully, the file is OK
+            If process.ExitCode = 0 Then
+                UpdateStatusBox("✅ File is readable: " & filePath)
+                Return True
+            Else
+                ' If an error is found, display the FFmpeg log
+                UpdateStatusBox("⚠️ File is corrupted: " & filePath & vbCrLf & errorLog)
+                Return False
+            End If
+
+        Catch ex As Exception
+            UpdateStatusBox("❌ Error checking file: " & ex.Message)
+            Return False
+        End Try
+    End Function
+
+    ' Check if the video format supports thumbnails via FFmpeg
+    Private Function IsThumbnailCompatible(filePath As String) As Boolean
+        Try
+            Dim ffmpegPath As String = Me.FFmpegPath.Text
+            If Not File.Exists(ffmpegPath) Then
+                UpdateStatusBox("❌ FFmpeg not found.")
+                Return False
+            End If
+
+            ' Command compatible with all FFmpeg versions
+            Dim cmd As String = $"-i ""{filePath}"" -hide_banner"
+            Dim process As New Process() With {
+            .StartInfo = New ProcessStartInfo(ffmpegPath, cmd) With {
+                .CreateNoWindow = True,
+                .UseShellExecute = False,
+                .RedirectStandardError = True,
+                .StandardErrorEncoding = System.Text.Encoding.UTF8
+            }
+        }
+
+            process.Start()
+            Dim errorOutput As String = process.StandardError.ReadToEnd()
+            process.WaitForExit()
+
+            ' Search for the line containing 'major_brand' (indicates format)
+            Dim formatLine As String = errorOutput.Split(vbLf).FirstOrDefault(Function(l) l.Contains("major_brand"))
+            If String.IsNullOrEmpty(formatLine) Then
+                UpdateStatusBox("⚠️ Unable to detect file format.")
+                Return False
+            End If
+
+            ' Extract the format from 'major_brand'
+            Dim detectedFormat As String = formatLine.Split(":"c).Last().Trim().ToLower()
+
+            ' List of formats compatible with thumbnails
+            Dim supportedFormats As String() = {"mp42", "isom", "mov", "mp41"}
+
+            If supportedFormats.Contains(detectedFormat) Then
+                UpdateStatusBox($"✅ Detected format: {detectedFormat} → Compatible with thumbnails.")
+                Return True
+            Else
+                UpdateStatusBox($"❌ Detected format: {detectedFormat} → This format does NOT support thumbnails.")
+                Return False
+            End If
+        Catch ex As Exception
+            UpdateStatusBox("❌ Error checking format: " & ex.Message)
+            Return False
+        End Try
+    End Function
+
+    ' Apply a thumbnail to a video file
+    Private Function ApplyThumbnailToFile(targetFile As String) As Boolean
+        Try
+            Dim tempThumbnailPath As String = Path.Combine(Path.GetTempPath(), "new_thumbnail.jpg")
+            FinalPictureBox.Image.Save(tempThumbnailPath, Imaging.ImageFormat.Jpeg)
+
+            Dim ffmpegPath As String = Me.FFmpegPath.Text
+            If Not File.Exists(ffmpegPath) Then
+                UpdateStatusBox("❌ FFmpeg not found.")
+                Return False
+            End If
+
+            ' Check format compatibility
+            If Not IsThumbnailCompatible(targetFile) Then
+                Dim result As DialogResult = MessageBox.Show("The format of this file is not compatible with thumbnails." & vbCrLf & "Do you want to re-encode it to MP4?", "Incompatible format", MessageBoxButtons.YesNo, MessageBoxIcon.Question)
+
+                If result = DialogResult.Yes Then
+                    UpdateStatusBox("♻️ Starting re-encoding to MP4...")
+                    Dim reencodedFile As String = ReencodeVideo(targetFile)
+
+                    If Not String.IsNullOrEmpty(reencodedFile) Then
+                        UpdateStatusBox("✅ Re-encoding complete. Applying thumbnail...")
+                        Return ApplyThumbnailToFile(reencodedFile) ' Apply thumbnail to the re-encoded file
+                    Else
+                        UpdateStatusBox("❌ Re-encoding failed. The original file is preserved.")
+                        Return False
+                    End If
+                Else
+                    UpdateStatusBox("⏭️ Re-encoding canceled by the user. No changes made.")
+                    Return False
+                End If
+            End If
+
+            ' Apply the thumbnail normally
+            Dim tempOutputFile As String = Path.Combine(Path.GetTempPath(), Path.GetFileName(targetFile) & "_tmp.mp4")
+            Dim cmd As String = $"-i ""{targetFile}"" -i ""{tempThumbnailPath}"" -map 0 -map 1 -c copy -disposition:v:1 attached_pic ""{tempOutputFile}"""
+
+            ProgressBar2.Value = 0
+            ProgressLabel.Text = "📂 Adding thumbnail..."
+            UpdateStatusBox("🚀 Starting FFmpeg process to add thumbnail.")
+
+            Dim process As New Process() With {
+            .StartInfo = New ProcessStartInfo(ffmpegPath, cmd) With {
+                .CreateNoWindow = True,
+                .UseShellExecute = False,
+                .RedirectStandardOutput = True,
+                .RedirectStandardError = True
+            }
+        }
+            process.Start()
+
+            ' Read FFmpeg logs for progress tracking
+            Dim outputReader As StreamReader = process.StandardError
+            While Not process.HasExited
+                Dim line As String = outputReader.ReadLine()
+                If line IsNot Nothing AndAlso line.Contains("frame=") Then
+                    ProgressBar2.Value = Math.Min(ProgressBar2.Value + 5, 80)
+                    ProgressLabel.Text = $"Adding thumbnail... {ProgressBar2.Value}%"
+                    UpdateStatusBox(line)
+                End If
+            End While
+            process.WaitForExit()
+
+            ' Check if the thumbnail was added successfully
+            If File.Exists(tempOutputFile) AndAlso IsFileReadable(tempOutputFile) Then
+                PreserveFileAttributes(targetFile, tempOutputFile)
+                File.Move(tempOutputFile, targetFile, True)
+
+                ProgressBar2.Value = 100
+                ProgressLabel.Text = "✅ Operation complete"
+                UpdateStatusBox("🎉 Thumbnail applied successfully!")
+                Return True
+            Else
+                UpdateStatusBox("❌ Error applying thumbnail.")
+                Return False
+            End If
+        Catch ex As Exception
+            UpdateStatusBox("❌ Error processing: " & ex.Message)
+            Return False
+        End Try
+    End Function
+
+    Private Function ReencodeVideo(targetFile As String) As String
+        Try
+            Dim ffmpegPath As String = Me.FFmpegPath.Text
+            If Not File.Exists(ffmpegPath) Then
+                UpdateStatusBox("❌ FFmpeg not found.")
+                Return ""
+            End If
+
+            ' Determine the total duration of the video
+            Dim totalDuration As Integer = GetVideoDuration(targetFile)
+            If totalDuration = 0 Then
+                UpdateStatusBox("❌ Unable to retrieve video duration.")
+                Return ""
+            End If
+
+            ' Generate the name of the re-encoded MP4 file
+            Dim reencodedFile As String = Path.Combine(Path.GetDirectoryName(targetFile),
+                                    Path.GetFileNameWithoutExtension(targetFile) & "_reencoded.mp4")
+
+            Dim cmd As String = $"-i ""{targetFile}"" -c:v libx264 -preset slow -crf 18 -c:a aac -b:a 192k ""{reencodedFile}"""
+
+            ProgressBar2.Value = 0
+            ProgressLabel.Text = "🔄 Re-encoding in progress..."
+            UpdateStatusBox("♻️ Starting re-encoding...")
+
+            ' Initialize the FFmpeg process
+            Dim process As New Process() With {
+            .StartInfo = New ProcessStartInfo(ffmpegPath, cmd) With {
+                .CreateNoWindow = True,
+                .UseShellExecute = False,
+                .RedirectStandardOutput = True,
+                .RedirectStandardError = True
+            }
+        }
+            process.Start()
+
+            ' Read FFmpeg logs for progress tracking
+            Dim outputReader As StreamReader = process.StandardError
+            While Not process.HasExited
+                Dim line As String = outputReader.ReadLine()
+                If line IsNot Nothing AndAlso line.Contains("time=") Then
+                    ' Extract the elapsed time from the line
+                    Dim match = System.Text.RegularExpressions.Regex.Match(line, "time=(\d+):(\d+):(\d+).(\d+)")
+                    If match.Success Then
+                        Dim hours As Integer = Integer.Parse(match.Groups(1).Value)
+                        Dim minutes As Integer = Integer.Parse(match.Groups(2).Value)
+                        Dim seconds As Integer = Integer.Parse(match.Groups(3).Value)
+                        Dim elapsedTime As Integer = (hours * 3600) + (minutes * 60) + seconds
+
+                        ' Calculate the progress percentage
+                        Dim progress As Integer = CInt((elapsedTime / totalDuration) * 100)
+                        ProgressBar2.Value = Math.Min(progress, 100)
+                        ProgressLabel.Text = $"Re-encoding... {ProgressBar2.Value}%"
+                    End If
+                    UpdateStatusBox(line)
+                End If
+            End While
+            process.WaitForExit()
+
+            ' Verify the re-encoded file
+            If File.Exists(reencodedFile) AndAlso IsFileReadable(reencodedFile) Then
+                ProgressBar2.Value = 100
+                ProgressLabel.Text = "✅ Re-encoding complete"
+                UpdateStatusBox("🎥 Video re-encoded successfully!")
+                Return reencodedFile
+            Else
+                UpdateStatusBox("❌ Error re-encoding.")
+                Return ""
+            End If
+
+        Catch ex As Exception
+            UpdateStatusBox("❌ Error re-encoding: " & ex.Message)
+            Return ""
+        End Try
+    End Function
+
+    ' Function to preserve file attributes
+    Private Sub PreserveFileAttributes(originalFile As String, newFile As String)
+        Dim originalInfo As FileInfo = New FileInfo(originalFile)
+        Dim newInfo As FileInfo = New FileInfo(newFile)
+
+        Try
+            newInfo.CreationTime = originalInfo.CreationTime
+            newInfo.LastAccessTime = originalInfo.LastAccessTime
+            newInfo.LastWriteTime = originalInfo.LastWriteTime
+            newInfo.Attributes = originalInfo.Attributes
+            UpdateStatusBox("✅ Attributes preserved on the updated file.")
+        Catch ex As Exception
+            UpdateStatusBox("⚠️ Unable to copy attributes: " & ex.Message)
+        End Try
+    End Sub
+
+    ' Function to add text to the log without overwriting existing content
+    Private Sub UpdateStatusBox(message As String)
+        StatusBox.AppendText(message & vbCrLf)
+    End Sub
+
 End Class
