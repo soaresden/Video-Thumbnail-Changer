@@ -129,7 +129,6 @@ Public Class Form1
             .AutoSize = True,
             .Location = New Point(10, 10)
         }
-
         AddHandler CheckBoxIconInThumbnail.CheckedChanged, AddressOf IconInThumbnail_CheckedChanged
         Me.Controls.Add(CheckBoxIconInThumbnail)
 
