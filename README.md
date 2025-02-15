@@ -2,6 +2,7 @@
 ![image](https://github.com/user-attachments/assets/55401d55-50f6-4c8e-ac45-d73bda34fd1d)
 
 ENGLISH VERSON  🇬🇧
+
 🎬 Video Thumbnail Changer
 📌 A simple and fast tool to modify video thumbnails directly in Windows Explorer
 
@@ -47,6 +48,7 @@ Everything is built-in, FFmpeg and Icaros are fully integrated for maximum compa
 
 
 Version Française 🇫🇷
+
 🎬 Video Thumbnail Changer
 📌 Un outil simple et rapide pour modifier les miniatures de vidéos directement dans l'explorateur Windows
 
