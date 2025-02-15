@@ -1,4 +1,5 @@
-![image](https://github.com/user-attachments/assets/64563cab-5132-4b00-9635-e0240035e41c)
+![image](https://github.com/user-attachments/assets/ca3efcad-9ec8-44e1-b87b-05abfa953e80)
+
 
 ENGLISH VERSION 🇬🇧
 
