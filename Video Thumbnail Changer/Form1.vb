@@ -811,7 +811,6 @@ Public Class Form1
     Private Sub JPGOverlay_CheckedChanged(sender As Object, e As EventArgs) Handles JPGOverlay.CheckedChanged
         If JPGOverlay.Checked Then
             ' Appliquer l'overlay sur l'image actuelle
-            ThumbnailEdition.Visible = True
             UpdateOverlay()
         Else
             ' Charger immédiatement le backup sans overlay
@@ -820,10 +819,10 @@ Public Class Form1
             If File.Exists(backupPath) Then
                 Try
                     Using tempStream As New FileStream(backupPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)
-                        FinalPictureBox.Image = New Bitmap(tempStream) ' Charger l'image de sauvegarde
+                        Dim originalImage As New Bitmap(tempStream)
+                        FinalPictureBox.Image = ResizeImageToMaxSize(originalImage, 800) ' Limite à 800 px max
                     End Using
                     UpdateStatusBox("Backup restauré après désactivation de l'overlay.")
-                    ThumbnailEdition.Visible = False
                 Catch ex As Exception
                     UpdateStatusBox("Erreur lors du chargement du backup: " & ex.Message)
                 End Try
@@ -832,6 +831,7 @@ Public Class Form1
             End If
         End If
     End Sub
+
 
 
     ' Add JPG Overlay
