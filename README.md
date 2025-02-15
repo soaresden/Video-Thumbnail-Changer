@@ -64,6 +64,16 @@ Clear Windows thumbnail cache if needed.
 
 No installation required! Just download and run the executable.Everything is built-in, FFmpeg and Icaros are fully integrated for maximum compatibility.
 
+
+
+
+________________________________________________________________________
+
+
+
+
+
+
 Version Française 🇫🇷
 
 🎮 Video Thumbnail Changer
