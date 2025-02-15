@@ -1,3 +1,5 @@
+![image](https://github.com/user-attachments/assets/64563cab-5132-4b00-9635-e0240035e41c)
+
 ENGLISH VERSION 🇬🇧
 
 🎮 Video Thumbnail Changer
