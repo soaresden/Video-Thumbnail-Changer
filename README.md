@@ -3,7 +3,8 @@
 Complete reimagination from vb.net to Python
 A powerful desktop application to **embed custom thumbnails** in your video files with an intuitive UI and real-time preview.
 
-![alt text](image.png)
+<img width="1497" height="905" alt="image" src="https://github.com/user-attachments/assets/e80b843d-8ee1-48f3-88e6-a29407c0f660" />
+
 
 ## ✨ Features
 
