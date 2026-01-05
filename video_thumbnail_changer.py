@@ -484,13 +484,25 @@ class VideoThumbnailChanger:
         
         if found:
             try:
-                self.vlc_instance = vlc.Instance()
+                # Try to use hardware acceleration (GPU)
+                # VLC will try available options: CUDA (NVIDIA), DXVA2 (Intel/AMD on Windows), etc.
+                vlc_args = [
+                    '--avcodec-hw=auto',  # Enable hardware acceleration (auto-detect)
+                ]
+                self.vlc_instance = vlc.Instance(*vlc_args)
                 self.vlc_player = self.vlc_instance.media_list_player_new()
-                self.log("[OK] VLC initialized")
+                self.log("[OK] VLC initialized with GPU acceleration")
                 return True
             except Exception as e:
-                self.log(f"[ERROR] VLC init : {str(e)}")
-                return False
+                # Fallback to software decoding if GPU init fails
+                try:
+                    self.vlc_instance = vlc.Instance()
+                    self.vlc_player = self.vlc_instance.media_list_player_new()
+                    self.log("[OK] VLC initialized (software decoding)")
+                    return True
+                except:
+                    self.log(f"[ERROR] VLC init : {str(e)}")
+                    return False
         else:
             self.log("[ERROR] VLC not found")
             return False
@@ -562,26 +574,26 @@ class VideoThumbnailChanger:
         canvas_frame = tk.Frame(self.gallery_frame)
         canvas_frame.pack(fill=tk.BOTH, expand=True, pady=5)
         
-        canvas = tk.Canvas(canvas_frame, bg="gray20", highlightthickness=0, width=150)
-        scrollbar = ttk.Scrollbar(canvas_frame, orient=tk.VERTICAL, command=canvas.yview)
+        self.gallery_canvas = tk.Canvas(canvas_frame, bg="gray20", highlightthickness=0, width=150)
+        scrollbar = ttk.Scrollbar(canvas_frame, orient=tk.VERTICAL, command=self.gallery_canvas.yview)
         
-        self.gallery_container = tk.Frame(canvas, bg="gray20")
+        self.gallery_container = tk.Frame(self.gallery_canvas, bg="gray20")
         def on_gallery_configure(e):
-            canvas.configure(scrollregion=canvas.bbox("all"))
+            self.gallery_canvas.configure(scrollregion=self.gallery_canvas.bbox("all"))
         self.gallery_container.bind("<Configure>", on_gallery_configure)
         
-        canvas.create_window((0, 0), window=self.gallery_container, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
+        self.gallery_canvas.create_window((0, 0), window=self.gallery_container, anchor="nw")
+        self.gallery_canvas.configure(yscrollcommand=scrollbar.set)
         
-        # Add mousewheel scroll support (bind to canvas only)
+        # Add mousewheel scroll support
         def on_gallery_mousewheel(event):
-            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
-        canvas.bind("<MouseWheel>", on_gallery_mousewheel)
-        canvas.bind("<Button-4>", lambda e: canvas.yview_scroll(-1, "units"))
-        canvas.bind("<Button-5>", lambda e: canvas.yview_scroll(1, "units"))
-        canvas.bind("<Enter>", lambda e: canvas.focus_set())  # Focus on hover
+            self.gallery_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        self.gallery_canvas.bind("<MouseWheel>", on_gallery_mousewheel)
+        self.gallery_canvas.bind("<Button-4>", lambda e: self.gallery_canvas.yview_scroll(-1, "units"))
+        self.gallery_canvas.bind("<Button-5>", lambda e: self.gallery_canvas.yview_scroll(1, "units"))
+        self.gallery_canvas.bind("<Enter>", lambda e: self.gallery_canvas.focus_set())
         
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.gallery_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
         self.gallery_thumbnails = []
@@ -696,9 +708,11 @@ class VideoThumbnailChanger:
         controls_frame = ttk.Frame(center_panel)
         controls_frame.pack(fill=tk.X, padx=3, pady=2)
         
-        self.play_button = ttk.Button(controls_frame, text="▶️", command=self.play_video, width=3)
-        self.play_button.pack(side=tk.LEFT, padx=2)
-        ttk.Button(controls_frame, text="⏸️", command=self.pause_video, width=3).pack(side=tk.LEFT, padx=2)
+        # Single play/pause toggle button
+        self.play_pause_button = ttk.Button(controls_frame, text="▶️ Play", command=self.toggle_play_pause, width=10)
+        self.play_pause_button.pack(side=tk.LEFT, padx=2)
+        self.is_playing = False  # Track playback state
+        
         ttk.Button(controls_frame, text="⏹️", command=self.stop_video, width=3).pack(side=tk.LEFT, padx=2)
         ttk.Button(controls_frame, text="📸", command=self.save_screenshot, width=3).pack(side=tk.LEFT, padx=2)
         
@@ -731,7 +745,8 @@ class VideoThumbnailChanger:
         self.size_spinbox = ttk.Spinbox(self.text_frame, from_=10, to=100, width=8, font=("", 8))
         self.size_spinbox.set(30)
         self.size_spinbox.grid(row=1, column=1, sticky="w", padx=3)
-        self.size_spinbox.bind("<KeyRelease>", lambda e: self.update_preview_live())
+        self.size_spinbox.bind("<KeyRelease>", lambda e: self.sync_text_params_and_preview())
+        self.size_spinbox.bind("<FocusOut>", lambda e: self.sync_text_params_and_preview())
         
         # Colors side by side
         colors_frame = tk.Frame(self.text_frame)
@@ -759,7 +774,7 @@ class VideoThumbnailChanger:
                     values=["top-left", "top-center", "top-right", "down-left", "down-center", "down-right", "center"],
                     state="readonly", width=13, font=("", 8))
         pos_combo.grid(row=4, column=1, sticky="ew", padx=3)
-        pos_combo.bind("<<ComboboxSelected>>", lambda e: self.update_preview_live())
+        pos_combo.bind("<<ComboboxSelected>>", lambda e: self.sync_text_params_and_preview())
         
         # 4b. SCREENSHOTS (same height as Final ~165px)
         screen_dims = self.parse_zone_dims(self.SCREEN_ZONE)
@@ -1106,6 +1121,22 @@ class VideoThumbnailChanger:
                 
                 thumb_frame.bind("<Enter>", on_enter)
                 thumb_frame.bind("<Leave>", on_leave)
+                
+                # Add mousewheel scroll to thumbnails
+                def on_thumb_mousewheel(event):
+                    self.gallery_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+                
+                thumb_frame.bind("<MouseWheel>", on_thumb_mousewheel)
+                img_label.bind("<MouseWheel>", on_thumb_mousewheel)
+                name_label.bind("<MouseWheel>", on_thumb_mousewheel)
+                
+                # Linux mousewheel
+                thumb_frame.bind("<Button-4>", lambda e: self.gallery_canvas.yview_scroll(-1, "units"))
+                thumb_frame.bind("<Button-5>", lambda e: self.gallery_canvas.yview_scroll(1, "units"))
+                img_label.bind("<Button-4>", lambda e: self.gallery_canvas.yview_scroll(-1, "units"))
+                img_label.bind("<Button-5>", lambda e: self.gallery_canvas.yview_scroll(1, "units"))
+                name_label.bind("<Button-4>", lambda e: self.gallery_canvas.yview_scroll(-1, "units"))
+                name_label.bind("<Button-5>", lambda e: self.gallery_canvas.yview_scroll(1, "units"))
                 
                 self.gallery_thumbnails.append(thumb_frame)
                 
@@ -1548,6 +1579,23 @@ class VideoThumbnailChanger:
         finally:
             self.vlc_seeking = False
     
+    def toggle_play_pause(self):
+        """Toggles between play and pause"""
+        if not self.video_path:
+            messagebox.showerror("Error", "Select a video")
+            return
+        
+        if not self.vlc_player:
+            return
+        
+        try:
+            if self.vlc_player.is_playing():
+                self.pause_video()
+            else:
+                self.play_video()
+        except Exception as e:
+            self.log(f"[ERROR] Toggle play/pause: {str(e)}")
+    
     def play_video(self):
         """Starts video playback"""
         if not self.video_path:
@@ -1557,7 +1605,8 @@ class VideoThumbnailChanger:
         try:
             if self.vlc_player:
                 self.vlc_player.play()
-                self.play_button.config(state=tk.DISABLED)
+                self.is_playing = True
+                self.play_pause_button.config(text="⏸️ Pause")
                 self.log("[OK] Playing")
                 
                 self.update_timeline()
@@ -1580,19 +1629,23 @@ class VideoThumbnailChanger:
             
             self.root.after(100, self.update_timeline)
         else:
-            self.play_button.config(state=tk.NORMAL)
+            self.is_playing = False
+            self.play_pause_button.config(text="▶️ Play")
     
     def pause_video(self):
         """Pauses playback"""
         if self.vlc_player:
             self.vlc_player.pause()
+            self.is_playing = False
+            self.play_pause_button.config(text="▶️ Play")
             self.log("[INFO] Pause")
     
     def stop_video(self):
         """Stops playback"""
         if self.vlc_player:
             self.vlc_player.stop()
-            self.play_button.config(state=tk.NORMAL)
+            self.is_playing = False
+            self.play_pause_button.config(text="▶️ Play")
             self.log("[INFO] Stop")
     
     def on_volume_change(self, value):
@@ -1600,6 +1653,40 @@ class VideoThumbnailChanger:
         if self.vlc_player:
             media_player = self.vlc_player.get_media_player()
             media_player.audio_set_volume(int(float(value)))
+    
+    def sync_text_params_and_preview(self):
+        """Syncs text parameters from UI widgets to state variables and updates preview"""
+        try:
+            # Sync text size from spinbox to state
+            self.text_size = int(self.size_spinbox.get())
+        except:
+            pass
+        
+        # Sync position from combobox to state
+        self.text_position = self.position_var.get()
+        
+        # Update preview with new parameters
+        self.update_preview_live()
+    
+    def format_time(self, seconds):
+        """Formats seconds to MM:SS"""
+        m, s = divmod(int(seconds), 60)
+        return f"{m:02d}:{s:02d}"
+    
+    def seek_video(self, seconds):
+        """Seeks video by N seconds (positive or negative)"""
+        if not self.vlc_player:
+            return
+        
+        try:
+            media_player = self.vlc_player.get_media_player()
+            current_time = media_player.get_time() / 1000  # Convert to seconds
+            new_time = max(0, current_time + seconds)  # Don't go negative
+            
+            media_player.set_time(int(new_time * 1000))  # Convert back to milliseconds
+            self.log(f"[OK] Seeked to {self.format_time(new_time)}")
+        except Exception as e:
+            self.log(f"[ERROR] Seek failed: {str(e)}")
     
     def safe_subprocess(self, cmd, capture_output=True, timeout=10, text=True):
         """Safe subprocess call with UTF-8 encoding"""
@@ -1649,7 +1736,7 @@ class VideoThumbnailChanger:
             self.update_preview_live()
     
     def create_montage(self, screenshots_list):
-        """Creates a 2x2 montage of screenshots"""
+        """Creates a 2x2 montage of screenshots in the same size as a single frame"""
         if len(screenshots_list) == 0:
             return None
         
@@ -1667,16 +1754,27 @@ class VideoThumbnailChanger:
         if not images:
             return None
         
+        # Montage will be FRAME_WIDTH x FRAME_HEIGHT (same as single image)
+        # Each tile will be FRAME_WIDTH/2 x FRAME_HEIGHT/2
+        tile_width = self.FRAME_WIDTH // 2
+        tile_height = self.FRAME_HEIGHT // 2
+        
         resized = []
         for img in images:
-            resized.append(img.resize((self.FRAME_WIDTH, self.FRAME_HEIGHT), Image.Resampling.LANCZOS))
-            self.log(f"[INFO] Resized frame to {self.FRAME_WIDTH}x{self.FRAME_HEIGHT}")
+            resized.append(img.resize((tile_width, tile_height), Image.Resampling.LANCZOS))
         
-        montage = Image.new('RGB', (self.MONTAGE_WIDTH, self.MONTAGE_HEIGHT), color='black')
+        # Create montage with same dimensions as single frame
+        montage = Image.new('RGB', (self.FRAME_WIDTH, self.FRAME_HEIGHT), color='black')
         
-        self.log(f"[INFO] Created montage {self.MONTAGE_WIDTH}x{self.MONTAGE_HEIGHT}")
+        self.log(f"[INFO] Created montage {self.FRAME_WIDTH}x{self.FRAME_HEIGHT} (2x2 grid with {tile_width}x{tile_height} tiles)")
         
-        positions = [(0, 0), (self.FRAME_WIDTH, 0), (0, self.FRAME_HEIGHT), (self.FRAME_WIDTH, self.FRAME_HEIGHT)]
+        # Position tiles in 2x2 grid
+        positions = [
+            (0, 0),                           # Top-left
+            (tile_width, 0),                  # Top-right
+            (0, tile_height),                 # Bottom-left
+            (tile_width, tile_height)         # Bottom-right
+        ]
         
         for i, pos in enumerate(positions):
             if i < len(resized):
@@ -1830,7 +1928,9 @@ class VideoThumbnailChanger:
                 self.progress_var.set(80)
                 
                 if result.returncode != 0:
-                    raise Exception(f"FFmpeg error: {result.stderr[:300]}")
+                    error_msg = result.stderr[-1000:] if len(result.stderr) > 1000 else result.stderr
+                    self.log(f"[ERROR] FFmpeg stderr:\n{error_msg}")
+                    raise Exception(f"FFmpeg failed to embed thumbnail. See logs for details.")
                 
                 os.remove(temp_thumb)
                 
@@ -1845,15 +1945,21 @@ class VideoThumbnailChanger:
                 
                 self.progress_var.set(100)
                 self.log("[SUCCESS] Thumbnail embedded!")
+                full_path = os.path.abspath(output_path)
+                self.log(f"[INFO] Full path: {full_path}")
                 
-                # Auto-refresh cache
-                self.log("[INFO] Auto-refreshing Windows cache...")
-                self.root.after(1000, self.refresh_windows_thumbnails_silent)
+                # Verify file exists and show size
+                if os.path.exists(full_path):
+                    file_size = os.path.getsize(full_path)
+                    self.log(f"[OK] File verified - Size: {file_size / (1024*1024):.1f} MB")
+                    messagebox.showinfo("Success",
+                        f"File saved at:\n\n{full_path}\n\n"
+                        f"File size: {file_size / (1024*1024):.1f} MB")
+                else:
+                    self.log(f"[WARNING] File not found at: {full_path}")
+                    messagebox.showwarning("Warning", f"File path:\n{full_path}\n\nPlease check if file was created.")
                 
-                messagebox.showinfo("Success", 
-                    f"Thumbnail embedded in:\n{os.path.basename(self.video_path)}\n\n"
-                    f"Cache is being refreshed...\n"
-                    f"Your thumbnail will appear in Explorer shortly!")
+                self.log("[INFO] (Use the Refresh Cache button if needed to update Explorer thumbnails)")
                 
             except Exception as e:
                 self.log(f"[ERROR] {str(e)}")
@@ -1897,6 +2003,8 @@ class VideoThumbnailChanger:
         def reencode():
             try:
                 self.log("[INFO] Creating final image...")
+                self.log(f"[INFO] Output will be saved to: {output_path}")
+                self.log(f"[INFO] Output parent dir: {os.path.dirname(output_path)}")
                 
                 final_image = self.final_thumbnail_pil.copy()
                 output_width = self.width_var.get()
@@ -1905,70 +2013,330 @@ class VideoThumbnailChanger:
                 self.log(f"[INFO] Resized to {output_width}x{output_height}")
                 
                 final_image.save(temp_thumb, quality=95)
-                self.log("[OK] Image saved")
-                self.progress_var.set(10)
+                self.log("[OK] Thumbnail image ready")
+                self.progress_var.set(20)
                 
-                # Get original video bitrate and audio codec
-                self.log("[INFO] Analyzing source video...")
-                cmd_probe = [
-                    'ffprobe', '-v', 'error',
-                    '-select_streams', 'v:0',
-                    '-show_entries', 'stream=bit_rate',
-                    '-of', 'default=noprint_wrappers=1:nokey=1',
-                    self.video_path
+                # Initialize variables for 2-step tracking and format detection
+                is_2step = False
+                intermediate_path = None
+                is_format_conversion = ext not in supported_formats
+                
+                # ===== PROBE SOURCE VIDEO =====
+                self.log("[INFO] Analyzing source video in detail...")
+                
+                probe_cmd = [
+                    'ffprobe', '-v', 'error', '-show_format', '-show_streams',
+                    '-print_format', 'json', self.video_path
                 ]
-                result = subprocess.run(cmd_probe, capture_output=True, text=True, encoding='utf-8', errors='replace')
-                bitrate_str = result.stdout.strip()
                 
-                # Convert bitrate from bits to kbits if needed
-                try:
-                    bitrate_bits = int(bitrate_str)
-                    bitrate = f"{bitrate_bits // 1000}k"  # Convert to kbps
-                except:
-                    bitrate = '5000k'
+                probe_result = subprocess.run(probe_cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
                 
-                self.log(f"[INFO] Using bitrate: {bitrate}")
-                
-                if ext not in supported_formats:
-                    self.log(f"[INFO] Converting {ext} to MP4 with thumbnail...")
+                if probe_result.returncode == 0:
+                    try:
+                        import json
+                        probe_data = json.loads(probe_result.stdout)
+                        
+                        # Log detailed info
+                        self.log("[INFO] ===== VIDEO PROPERTIES =====")
+                        
+                        if 'format' in probe_data:
+                            duration = float(probe_data['format'].get('duration', 0))
+                            self.log(f"[INFO] Duration: {self.format_time(duration)}")
+                            self.log(f"[INFO] Bitrate: {probe_data['format'].get('bit_rate', 'N/A')} bps")
+                        
+                        video_codec = None
+                        has_audio = False
+                        num_streams = 0
+                        
+                        if 'streams' in probe_data:
+                            num_streams = len(probe_data['streams'])
+                            self.log(f"[INFO] Total streams: {num_streams}")
+                            
+                            for i, stream in enumerate(probe_data['streams']):
+                                codec_type = stream.get('codec_type', 'unknown')
+                                codec_name = stream.get('codec_name', 'unknown')
+                                
+                                if codec_type == 'video':
+                                    video_codec = codec_name
+                                    profile = stream.get('profile', 'N/A')
+                                    width = stream.get('width', 'N/A')
+                                    height = stream.get('height', 'N/A')
+                                    fps = stream.get('r_frame_rate', 'N/A')
+                                    self.log(f"[INFO] Video: {codec_name} ({profile}) {width}x{height} @{fps}")
+                                elif codec_type == 'audio':
+                                    has_audio = True
+                                    self.log(f"[INFO]   AUDIO: {codec_name}")
+                                else:
+                                    self.log(f"[INFO]   {codec_type.upper()}: {codec_name}")
+                        
+                        # ===== DECIDE STRATEGY =====
+                        self.log("[INFO] ===== CONVERSION STRATEGY =====")
+                        
+                        if is_format_conversion:
+                            self.log(f"[INFO] Format conversion: {ext} → MP4")
+                            
+                            # Check if video codec is already H264/H265
+                            if video_codec and video_codec.lower() in ['h264', 'hevc', 'h265']:
+                                self.log(f"[OK] Video is already {video_codec} - only re-mux needed")
+                                # Can do in one step: re-mux + add thumbnail
+                                cmd = [
+                                    'ffmpeg',
+                                    '-i', self.video_path,
+                                    '-i', temp_thumb,
+                                    '-c:v', 'copy',
+                                    '-map', '0:v:0',
+                                ]
+                                if has_audio:
+                                    cmd.extend(['-c:a', 'aac', '-map', '0:a:0'])
+                                
+                                cmd.extend([
+                                    '-map', '1:0',
+                                    '-disposition:v:1', 'attached_pic',
+                                    '-y',
+                                    output_path
+                                ])
+                                self.log("[INFO] Command: Copy video + convert/copy audio + thumbnail (1 step)")
+                            else:
+                                self.log(f"[WARNING] Video is {video_codec} (not H264) - must re-encode")
+                                self.log("[INFO] Strategy: 2-step (re-encode video first, then add thumbnail)")
+                                
+                                # Step 1: Re-encode without thumbnail
+                                intermediate_path = output_path.replace('.mp4', '_intermediate.mp4')
+                                cmd_step1 = [
+                                    'ffmpeg',
+                                    '-i', self.video_path,
+                                    '-c:v', 'libx264',
+                                    '-preset', 'veryfast',
+                                    '-crf', '23',
+                                    '-map', '0:v:0',
+                                ]
+                                
+                                if has_audio:
+                                    cmd_step1.extend(['-c:a', 'aac', '-b:a', '128k', '-map', '0:a:0'])
+                                
+                                cmd_step1.extend(['-y', intermediate_path])
+                                
+                                self.log("[INFO] STEP 1: Re-encoding video to H264...")
+                                result = subprocess.run(cmd_step1, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=600)
+                                
+                                if result.returncode != 0:
+                                    error_msg = result.stderr[-500:] if len(result.stderr) > 500 else result.stderr
+                                    self.log(f"[ERROR] Step 1 failed:\n{error_msg}")
+                                    raise Exception(f"FFmpeg re-encode failed. See logs for details.")
+                                
+                                # Verify intermediate file was created
+                                if not os.path.exists(intermediate_path):
+                                    self.log(f"[ERROR] Intermediate file not created: {intermediate_path}")
+                                    raise Exception(f"Intermediate file not found at {intermediate_path}")
+                                
+                                self.log("[OK] Step 1 complete - video re-encoded")
+                                self.log(f"[INFO] Intermediate file: {intermediate_path}")
+                                self.progress_var.set(50)
+                                
+                                # Step 2: Add thumbnail to re-encoded video
+                                self.log("[INFO] STEP 2: Adding thumbnail to re-encoded video...")
+                                cmd_step2 = [
+                                    'ffmpeg',
+                                    '-i', intermediate_path,
+                                    '-i', temp_thumb,
+                                    '-c:v', 'copy',
+                                    '-c:a', 'copy',
+                                    '-map', '0:v:0',      # Only video stream
+                                    '-map', '0:a:0',      # Only audio stream (if exists)
+                                    '-map', '1:0',        # Thumbnail
+                                    '-disposition:v:1', 'attached_pic',
+                                    '-y',
+                                    output_path
+                                ]
+                                
+                                self.log("[INFO] Command: Copy video + audio + thumbnail (no data streams)")
+                                result_step2 = subprocess.run(cmd_step2, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=300)
+                                
+                                if result_step2.returncode != 0:
+                                    # Retry without audio if it failed
+                                    self.log("[WARNING] Step 2 failed with audio, retrying without audio...")
+                                    cmd_step2_retry = [
+                                        'ffmpeg',
+                                        '-i', intermediate_path,
+                                        '-i', temp_thumb,
+                                        '-c:v', 'copy',
+                                        '-map', '0:v:0',      # Only video
+                                        '-map', '1:0',        # Thumbnail
+                                        '-disposition:v:1', 'attached_pic',
+                                        '-y',
+                                        output_path
+                                    ]
+                                    result_step2 = subprocess.run(cmd_step2_retry, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=300)
+                                
+                                if result_step2.returncode != 0:
+                                    error_msg = result_step2.stderr[-500:] if len(result_step2.stderr) > 500 else result_step2.stderr
+                                    self.log(f"[ERROR] Step 2 failed:\n{error_msg}")
+                                    raise Exception(f"FFmpeg thumbnail add failed. See logs for details.")
+                                
+                                if result_step2.returncode == 0:
+                                    self.log("[OK] Step 2 complete - thumbnail added")
+                                
+                                # Mark as 2-step executed
+                                is_2step = True
+                        else:
+                            self.log("[OK] Same format - just copy streams")
+                            is_2step = False
+                            cmd = [
+                                'ffmpeg',
+                                '-i', self.video_path,
+                                '-i', temp_thumb,
+                                '-map', '0',
+                                '-map', '1:0',
+                                '-c', 'copy',
+                                '-c:a', 'copy',
+                                '-disposition:v:1', 'attached_pic',
+                                '-y',
+                                output_path
+                            ]
+                        
+                        self.log("[INFO] Starting FFmpeg conversion...")
+                        
+                    except Exception as e:
+                        self.log(f"[WARNING] Failed to parse probe data: {str(e)}")
+                        self.log("[INFO] Using default strategy...")
+                        
+                        if is_format_conversion:
+                            cmd = [
+                                'ffmpeg',
+                                '-i', self.video_path,
+                                '-i', temp_thumb,
+                                '-c:v', 'libx264',
+                                '-preset', 'veryfast',
+                                '-c:a', 'aac',
+                                '-map', '0:v:0',
+                                '-map', '0:a:0',
+                                '-map', '1:0',
+                                '-disposition:v:1', 'attached_pic',
+                                '-y',
+                                output_path
+                            ]
+                        else:
+                            cmd = [
+                                'ffmpeg',
+                                '-i', self.video_path,
+                                '-i', temp_thumb,
+                                '-map', '0',
+                                '-map', '1:0',
+                                '-c', 'copy',
+                                '-c:a', 'copy',
+                                '-disposition:v:1', 'attached_pic',
+                                '-y',
+                                output_path
+                            ]
                 else:
-                    self.log("[INFO] Reencoding video with thumbnail...")
+                    self.log(f"[WARNING] ffprobe failed, using default strategy")
+                    
+                    if is_format_conversion:
+                        cmd = [
+                            'ffmpeg',
+                            '-i', self.video_path,
+                            '-i', temp_thumb,
+                            '-c:v', 'libx264',
+                            '-preset', 'veryfast',
+                            '-c:a', 'aac',
+                            '-map', '0:v:0',
+                            '-map', '0:a:0',
+                            '-map', '1:0',
+                            '-disposition:v:1', 'attached_pic',
+                            '-y',
+                            output_path
+                        ]
+                    else:
+                        cmd = [
+                            'ffmpeg',
+                            '-i', self.video_path,
+                            '-i', temp_thumb,
+                            '-map', '0',
+                            '-map', '1:0',
+                            '-c', 'copy',
+                            '-c:a', 'copy',
+                            '-disposition:v:1', 'attached_pic',
+                            '-y',
+                            output_path
+                        ]
                 
-                # Simplified FFmpeg command
-                cmd = [
-                    'ffmpeg',
-                    '-i', self.video_path,
-                    '-i', temp_thumb,
-                    '-c:v', 'libx264',
-                    '-b:v', bitrate,
-                    '-c:a', 'aac',
-                    '-b:a', '128k',
-                    '-preset', 'medium',
-                    '-map', '0:v:0',
-                    '-map', '0:a:0',
-                    '-map', '1:0',
-                    '-disposition:v:1', 'attached_pic',
-                    '-y',
-                    output_path
-                ]
-                
-                result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
-                self.progress_var.set(80)
-                
-                if result.returncode != 0:
-                    raise Exception(f"FFmpeg error: {result.stderr[:200]}")
+                # Execute FFmpeg based on strategy
+                if is_2step:
+                    # 2-step already executed above (step 1 + step 2)
+                    self.progress_var.set(80)
+                    # Verify output file was created
+                    if os.path.exists(output_path):
+                        self.log(f"[OK] Output file created: {output_path}")
+                    else:
+                        self.log(f"[ERROR] Output file NOT found: {output_path}")
+                        raise Exception(f"FFmpeg did not create output file at {output_path}")
+                else:
+                    # Single-step execution (copy or re-mux in one go)
+                    self.log(f"[INFO] Output path: {output_path}")
+                    result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=300)
+                    self.progress_var.set(80)
+                    
+                    # Verify file was created
+                    if result.returncode == 0 and os.path.exists(output_path):
+                        self.log(f"[OK] Output file created: {output_path}")
+                    elif not os.path.exists(output_path):
+                        self.log(f"[ERROR] Output file NOT found: {output_path}")
+                    
+                    # If re-encode failed with audio, try without audio
+                    if result.returncode != 0 and is_format_conversion and '0:a:0' in str(cmd):
+                        self.log("[WARNING] Re-encode with audio failed, retrying without audio...")
+                        cmd = [
+                            'ffmpeg',
+                            '-i', self.video_path,
+                            '-i', temp_thumb,
+                            '-c:v', 'libx264',
+                            '-preset', 'veryfast',
+                            '-map', '0:v:0',
+                            '-map', '1:0',
+                            '-disposition:v:1', 'attached_pic',
+                            '-y',
+                            output_path
+                        ]
+                        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=300)
+                        if result.returncode == 0:
+                            self.log("[OK] Re-encode successful without audio")
+                            if os.path.exists(output_path):
+                                self.log(f"[OK] Output file created: {output_path}")
+                    
+                    if result.returncode != 0:
+                        # Show more error detail
+                        error_msg = result.stderr[-1000:] if len(result.stderr) > 1000 else result.stderr
+                        self.log(f"[ERROR] FFmpeg stderr:\n{error_msg}")
+                        raise Exception(f"FFmpeg failed to reencode. See logs for details.")
                 
                 os.remove(temp_thumb)
+                
+                # Clean up intermediate file if 2-step
+                if is_2step and intermediate_path and os.path.exists(intermediate_path):
+                    try:
+                        os.remove(intermediate_path)
+                        self.log(f"[OK] Cleaned up intermediate file")
+                    except:
+                        pass
                 
                 self.progress_var.set(100)
                 self.log("[SUCCESS] Reencoding complete !")
                 self.log(f"[INFO] File saved as: {os.path.basename(output_path)}")
+                full_path = os.path.abspath(output_path)
+                self.log(f"[INFO] Full path: {full_path}")
                 
-                # Auto-refresh cache
-                self.log("[INFO] Auto-refreshing Windows cache...")
-                self.root.after(1000, self.refresh_windows_thumbnails_silent)
+                # Verify file exists
+                if os.path.exists(full_path):
+                    file_size = os.path.getsize(full_path)
+                    self.log(f"[OK] File verified - Size: {file_size / (1024*1024):.1f} MB")
+                    messagebox.showinfo("Success", 
+                        f"File saved at:\n\n{full_path}\n\n"
+                        f"File size: {file_size / (1024*1024):.1f} MB")
+                else:
+                    self.log(f"[WARNING] File not found at: {full_path}")
+                    messagebox.showwarning("Warning", f"File path:\n{full_path}\n\nPlease check if file was created.")
                 
-                messagebox.showinfo("Success", f"Reencoding complete !\n\nFile saved as: {os.path.basename(output_path)}\n\nCache is being refreshed...")
+                self.log("[INFO] (Use the Refresh Cache button if needed to update Explorer thumbnails)")
                 
             except Exception as e:
                 self.log(f"[ERROR] {str(e)}")
